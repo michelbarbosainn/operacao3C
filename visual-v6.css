@@ -37,3 +37,6 @@
 .occ-history{padding:10px 12px;border:1px solid #e3eaf2;border-radius:8px;margin-bottom:7px;font-size:11px}
 .occ-history div{margin:5px 0}.occ-history small{color:#6b8199}.occ-history p{margin:6px 0 0;font-size:11px}
 @media(max-width:740px){.occ-customer summary{display:block}.occ-customer summary small{display:block;margin-top:5px}.occ-two{grid-template-columns:1fr}}
+
+/* V9.1 */
+.import-switch{display:flex;gap:8px;border-bottom:1px solid #e2e9f1;padding-bottom:13px;margin-bottom:15px}.import-switch button{background:#eaf0f7!important;color:#163c66!important}.import-switch button.active{background:#002f6c!important;color:#fff!important}.sidebar-foot{font-size:11px;line-height:1.9}.health-head{color:#ffc658;letter-spacing:.08em;font-size:10px;font-weight:700}.health-location{margin-top:11px;border-top:1px solid #ffffff20;padding-top:8px}.occ-customer summary{padding:7px 10px}.occ-customer .scroll{max-height:170px}.occ-history .occ-test-send{margin-top:8px;background:#002f6c!important;color:white}.modal:has(.occ-stats){width:min(1180px,97vw)}
