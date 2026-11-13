@@ -21,3 +21,19 @@
 
 /* V8.1: disponibilidade com ordenação direta e pesquisa */
 #availability-table thead th{user-select:none}#availability-table thead th:hover{background:#e3edf8;color:#002f6c}#availability-search{min-width:210px}.plan-link{background:transparent!important;color:#174c80!important;padding:3px 0!important;border:0!important;text-decoration:underline;text-decoration-color:#a6b9cb;text-underline-offset:3px;font-weight:500!important}.plan-link:hover{color:#002f6c!important;text-decoration-color:#002f6c}
+/* V9.0: ocorrencias compactas por destinatario */
+.modal:has(.occ-stats){width:min(1120px,96vw);padding:20px;max-height:92vh}
+.occ-stats{display:flex;gap:9px;flex-wrap:wrap;margin:8px 0 12px}
+.occ-stats span{background:#f1f5fa;border:1px solid #e3ebf4;border-radius:7px;padding:8px 12px;color:#48617b;font-size:12px}
+.occ-stats b{color:#002f6c}
+.occ-customer{border:1px solid #dde6f0;border-radius:9px;margin:7px 0;background:#fff;overflow:hidden}
+.occ-customer summary{cursor:pointer;display:flex;justify-content:space-between;gap:8px;align-items:center;background:#f6f9fc;padding:10px 13px;list-style-position:inside}
+.occ-customer summary strong{font-size:12px;color:#173a62}.occ-customer summary small{font-size:11px;color:#617b96}
+.occ-customer .scroll{border:0;border-radius:0;max-height:210px}.occ-table th,.occ-table td{padding:7px 10px;font-size:11px}
+.occ-table input[type=checkbox]{width:16px;height:16px;cursor:pointer}
+.occ-form{border-top:1px solid #e1e8f1;margin-top:15px;padding-top:15px}.occ-two{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+.occ-count{padding:11px;background:#f1f6fb;border-radius:7px;color:#002f6c}
+.occ-form textarea{min-height:75px}.occ-history-title{font-size:13px;margin:17px 0 8px}
+.occ-history{padding:10px 12px;border:1px solid #e3eaf2;border-radius:8px;margin-bottom:7px;font-size:11px}
+.occ-history div{margin:5px 0}.occ-history small{color:#6b8199}.occ-history p{margin:6px 0 0;font-size:11px}
+@media(max-width:740px){.occ-customer summary{display:block}.occ-customer summary small{display:block;margin-top:5px}.occ-two{grid-template-columns:1fr}}
