@@ -56,20 +56,43 @@ async function submit(type,rows){if(!db)throw Error('Conecte-se primeiro');
  await dashboard();msg(`Importação concluída!\nRecebidas: ${data.received} | Novas: ${data.inserted} | Repetidas: ${data.repeated} | Alteradas (para revisão): ${data.conflicts} | Inválidas: ${data.invalid}`);
  return data;
 }
-$('login').onclick=async()=>{try{
- const url=$('url').value.trim(),key=$('key').value.trim();if(!url.startsWith('https://')||!key)throw Error('Informe URL HTTPS e chave pública.');
- db=createClient(url,key,{auth:{persistSession:true,autoRefreshToken:true}});
- const {data,error}=await db.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});
- if(error)throw error;
- const {error:check}=await db.rpc('pcd_dashboard');if(check)throw check;
- localStorage.setItem('pcd_url',url);localStorage.setItem('pcd_public_key',key);
- $('who').textContent=data.user.email;$('setup').classList.add('hidden');$('app').classList.remove('hidden');$('logout').classList.remove('hidden');
- await dashboard();msg('Conectado. Banco pronto para importações.');
+const config=window.INNOVA_PCD_CONFIG || {};
+async function startApp(){
+ const url=config.supabaseUrl,key=config.supabasePublishableKey;
+ if(!url?.startsWith('https://') || !key || key.includes('SUBSTITUIR')){
+  msg('Configuração pendente: preencha a chave pública em config.js antes de publicar.',true);
+  $('login').disabled=true;return;
+ }
+ db=createClient(url,key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
+ const {data,error}=await db.auth.getSession();
+ if(error){msg('Erro ao recuperar sessão: '+error.message,true);return;}
+ if(data.session) await enterApp(data.session.user);
+ else msg('Entre com seu e-mail e senha. Sua sessão ficará salva neste navegador.');
+}
+async function enterApp(user){
+ try{
+  const {error}=await db.rpc('pcd_dashboard');if(error)throw error;
+  $('who').textContent=user.email;$('setup').classList.add('hidden');$('app').classList.remove('hidden');$('logout').classList.remove('hidden');
+  await dashboard();msg('Conectado ao banco operacao3C.');
+ }catch(e){
+  await db.auth.signOut();
+  $('setup').classList.remove('hidden');$('app').classList.add('hidden');$('logout').classList.add('hidden');
+  msg('Acesso não autorizado ou banco indisponível: '+e.message,true);
+ }
+}
+$('login').onclick=async()=>{
+ $('login').disabled=true;
+ try{
+  if(!db)throw Error('Conexão não configurada.');
+  const {data,error}=await db.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});
+  if(error)throw error;
+  $('password').value='';
+  await enterApp(data.user);
  }catch(e){msg(e.message,true);}
+ finally{$('login').disabled=false;}
 };
 $('logout').onclick=async()=>{await db?.auth.signOut();location.reload();};
-$('url').value=localStorage.getItem('pcd_url')||'';
-$('key').value=localStorage.getItem('pcd_public_key')||'';
+startApp();
 $('preview').onclick=()=>{
  try{const raw=$('paste').value.trim();if(!raw)throw Error('Cole a programação.');
  const sep=raw.split(/\r?\n/)[0].includes('\t')?'\t':',';
