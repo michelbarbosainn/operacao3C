@@ -1,206 +1,34 @@
-
 import {createClient} from 'https://esm.sh/@supabase/supabase-js@2.49.8';
-const $=id=>document.getElementById(id);
-let db=null, pending=[], currentTab='importacao', currentRows=[], selected=null, page=0, totalRows=0;
-const columns=['PLANO','COMPLEMENTO','TRANS.','DESTINO','CIDADE','BAIRRO','PERFIL','PESO','QTD ENTREGA','DATA FATURADO','TIPO DE OPERAÇÃO','R$','DATA CAR','HOR. CAR','MOTORISTA','PLACA'];
-function msg(s,error=false){$('message').textContent=s;$('message').className='status'+(error?' error':'');}
-function clean(s){return String(s??'').trim().replace(/\s+/g,' ');}
-function norm(s){return clean(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');}
-function parseDelimited(text,sep){let rows=[],row=[],cell='',quote=false;
- for(let i=0;i<text.length;i++){const c=text[i];
- if(c==='"'){if(quote&&text[i+1]==='"'){cell+='"';i++;}else quote=!quote;}
- else if(c===sep&&!quote){row.push(cell);cell='';}
- else if((c==='\n'||c==='\r')&&!quote){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);rows.push(row);row=[];cell='';}
- else cell+=c;
- }row.push(cell);if(row.some(v=>v.trim()))rows.push(row);return rows;
-}
-function dateBR(s){s=clean(s);if(!s||s==='#N/A')return null;
- const m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
- if(m){const iso=`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
- const d=new Date(iso+'T12:00:00Z');if(Number.isNaN(+d)||d.toISOString().slice(0,10)!==iso)throw Error('Data inválida: '+s);return iso;}
- if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
- throw Error('Data não reconhecida: '+s);
-}
-function numberBR(s){s=clean(s).replace(/[R$\s]/g,'');if(!s)return null;
- if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');
- else if(/^\d{1,3}(\.\d{3})+$/.test(s))s=s.replace(/\./g,'');
- const n=Number(s);if(!Number.isFinite(n))throw Error('Número inválido: '+s);return n;
-}
-function get(obj,name){const wanted=norm(name);const key=Object.keys(obj).find(k=>norm(k)===wanted);return key?clean(obj[key]):'';}
-function convert(o){const plan=get(o,'PLANO');if(!plan||plan==='#N/A')return null;
- const x={
- plan_number:plan,complement:get(o,'COMPLEMENTO'),transport:get(o,'TRANS.'),
- destination:get(o,'DESTINO'),city:get(o,'CIDADE'),neighborhood:get(o,'BAIRRO'),
- vehicle_profile:get(o,'PERFIL'),gross_weight:numberBR(get(o,'PESO')),
- delivery_count:numberBR(get(o,'QTD ENTREGA')),invoiced_on:dateBR(get(o,'DATA FATURADO')),
- operation_type:get(o,'TIPO DE OPERAÇÃO'),merchandise_value:numberBR(get(o,'R$')),
- loading_on:dateBR(get(o,'DATA CAR')),loading_time:get(o,'HOR. CAR'),
- driver_name:get(o,'MOTORISTA'),plate:get(o,'PLACA')
- };
- if(!x.loading_on)throw Error(`Plano ${plan}: DATA CAR obrigatória`);
- return x;
-}
-function html(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-function table(headers,rows){return `<table><thead><tr>${headers.map(h=>`<th>${html(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${html(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;}
-async function dashboard(){const {data,error}=await db.rpc('pcd_dashboard');if(error)throw error;
- $('total').textContent=data.total_routes;
- const batches=data.recent_batches||[];$('last').textContent=batches.length?new Date(batches[0].created_at).toLocaleString('pt-BR'):'Nenhuma';
- $('routes').innerHTML=table(['Plano','Carregamento','Cidade','Perfil','Motorista','Placa','SAC'],
- (data.recent_routes||[]).map(x=>[x.plan_number,x.loading_on,x.city,x.vehicle_profile,x.driver_name||'Não escalado',x.plate,x.sac_status]));
- $('batches').innerHTML=table(['Tipo','Data','Recebidas','Novas','Repetidas','Alteradas','Inválidas'],
- batches.map(x=>[x.import_type,new Date(x.created_at).toLocaleString('pt-BR'),x.received,x.inserted,x.repeated,x.conflicts,x.invalid]));
-}
-async function submit(type,rows){if(!db)throw Error('Conecte-se primeiro');
- const {data,error}=await db.rpc('pcd_import_programming',{p_type:type,p_rows:rows});
- if(error)throw error;
- await dashboard();msg(`Importação concluída!\nRecebidas: ${data.received} | Novas: ${data.inserted} | Repetidas: ${data.repeated} | Alteradas (para revisão): ${data.conflicts} | Inválidas: ${data.invalid}`);
- return data;
-}
-const config=window.INNOVA_PCD_CONFIG || {};
-async function startApp(){
- const url=config.supabaseUrl,key=config.supabasePublishableKey;
- if(!url?.startsWith('https://') || !key || key.includes('SUBSTITUIR')){
-  msg('Configuração pendente: preencha a chave pública em config.js antes de publicar.',true);
-  $('login').disabled=true;return;
- }
- db=createClient(url,key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
- const {data,error}=await db.auth.getSession();
- if(error){msg('Erro ao recuperar sessão: '+error.message,true);return;}
- if(data.session) await enterApp(data.session.user);
- else msg('Entre com seu e-mail e senha. Sua sessão ficará salva neste navegador.');
-}
-async function enterApp(user){
- try{
-  const {error}=await db.rpc('pcd_dashboard');if(error)throw error;
-  $('who').textContent=user.email;$('setup').classList.add('hidden');$('app').classList.remove('hidden');$('logout').classList.remove('hidden');
-  await dashboard();msg('Conectado ao banco operacao3C.');
- }catch(e){
-  await db.auth.signOut();
-  $('setup').classList.remove('hidden');$('app').classList.add('hidden');$('logout').classList.add('hidden');
-  msg('Acesso não autorizado ou banco indisponível: '+e.message,true);
- }
-}
-$('login').onclick=async()=>{
- $('login').disabled=true;
- try{
-  if(!db)throw Error('Conexão não configurada.');
-  const {data,error}=await db.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});
-  if(error)throw error;
-  $('password').value='';
-  await enterApp(data.user);
- }catch(e){msg(e.message,true);}
- finally{$('login').disabled=false;}
-};
-$('logout').onclick=async()=>{await db?.auth.signOut();location.reload();};
-startApp();
-$('preview').onclick=()=>{
- try{const raw=$('paste').value.trim();if(!raw)throw Error('Cole a programação.');
- const sep=raw.split(/\r?\n/)[0].includes('\t')?'\t':',';
- const matrix=parseDelimited(raw,sep);const head=matrix.shift().map(clean);
- if(!head.some(h=>norm(h)==='PLANO')||!head.some(h=>norm(h)==='DATACAR'))throw Error('Inclua o cabeçalho original com PLANO e DATA CAR.');
- let rejected=0;pending=[];
- for(const [i,r] of matrix.entries()){
-   if(!r.some(c=>clean(c)))continue;
-   const obj=Object.fromEntries(head.map((h,j)=>[h,r[j]??'']));
-   try{const x=convert(obj);if(x)pending.push(x);else rejected++;}
-   catch(e){throw Error(`Linha ${i+2}: ${e.message}`);}
- }
- if(!pending.length)throw Error('Nenhuma rota válida encontrada.');
- if(pending.length>2000)throw Error('Máximo de 2000 rotas por importação.');
- $('count').textContent=`${pending.length} rotas prontas · ${rejected} linhas vazias/inválidas ignoradas`;
- $('previewBox').innerHTML=table(['Plano','Complemento','Destino','Cidade','Perfil','Peso (kg)','Entregas','Valor mercadoria','Carregamento','Motorista','Placa'],
- pending.slice(0,100).map(x=>[x.plan_number,x.complement,x.destination,x.city,x.vehicle_profile,x.gross_weight,x.delivery_count,x.merchandise_value,x.loading_on,x.driver_name,x.plate]));
- $('import').disabled=false;msg('Prévia pronta. Confira os dados antes de confirmar.');
- }catch(e){pending=[];$('import').disabled=true;msg(e.message,true);}
-};
-$('paste').addEventListener('input',()=>{$('import').disabled=true;pending=[];});
-$('import').onclick=async()=>{if(!pending.length)return;
- if(!confirm(`Gravar ${pending.length} rotas no banco? Registros existentes não serão sobrescritos.`))return;
- $('import').disabled=true;try{await submit('DIARIO',pending);$('paste').value='';$('previewBox').innerHTML='';$('count').textContent='';pending=[];}catch(e){msg(e.message,true);}finally{$('import').disabled=!pending.length;}
-};
-
-
-// TELAS V3 — programação, SAC, consulta e histórico.
-const statusLabel={AGUARDANDO:'Aguardando',EM_ROTA:'Em rota',ENTREGUE:'Entregue',
- OCORRENCIA:'Ocorrência',DEVOLUCAO:'Devolução',NAO_CONCLUIDA:'Não concluída'};
-function setTab(tab){
- currentTab=tab;
- document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
- const imp=tab==='importacao';
- for(const id of ['tab-importacao','tab-recentes','tab-lotes'])$(id).classList.toggle('hidden',!imp);
- $('tab-workspace').classList.toggle('hidden',imp);
- if(!imp){
-  $('workspace-title').textContent=tab==='programacao'?'Mesa de programação':tab==='sac'?'Acompanhamento SAC':'Consulta de rotas';
-  $('workspace-subtitle').textContent=tab==='programacao'?'Atribua motoristas e placas sem alterar os dados do cliente.':tab==='sac'?'Atualize a situação das entregas e registre ocorrências.':'Consulte as rotas já gravadas no banco.';
-  if(tab==='programacao')$('filter-status').value='SEM_MOTORISTA';
-  else if(tab==='sac')$('filter-status').value='AGUARDANDO';
-  else $('filter-status').value='';
-  page=0;loadRoutes();
- }
-}
-document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
-async function loadRoutes(){
- if(!db)return;
- $('workspace-table').textContent='Carregando rotas...';
- const {data,error}=await db.rpc('pcd_list_routes',{
-  p_search:$('filter-search').value.trim(),p_from:$('filter-from').value||null,
-  p_to:$('filter-to').value||null,p_status:$('filter-status').value,
-  p_limit:50,p_offset:page*50
- });
- if(error){msg('Erro ao consultar: '+error.message,true);$('workspace-table').textContent='Erro na consulta';return;}
- currentRows=data.rows||[];totalRows=Number(data.total)||0;
- $('result-info').textContent=`${totalRows} rota(s) encontrada(s)`;
- $('page-label').textContent=`Página ${page+1} de ${Math.max(1,Math.ceil(totalRows/50))}`;
- $('prev-page').disabled=page===0;$('next-page').disabled=(page+1)*50>=totalRows;
- const head=['Plano','Carregamento','Cidade','Perfil','Peso','Entregas','Motorista','Placa','SAC','Ação'];
- const rows=currentRows.map(r=>[r.plan_number,r.loading_on,r.city,r.vehicle_profile,
- r.gross_weight??'',r.delivery_count??'',r.driver_name||'Não escalado',r.plate||'',
- statusLabel[r.sac_status]||r.sac_status,'EDIT']);
- $('workspace-table').innerHTML=rows.length?table(head,rows):'<p class="muted">Nenhuma rota encontrada para os filtros.</p>';
- $('workspace-table').querySelectorAll('tbody tr').forEach((tr,i)=>{
-  const cell=tr.lastElementChild;cell.textContent='';
-  const b=document.createElement('button');b.className='editbtn';b.textContent=currentTab==='consulta'?'Detalhes':'Editar';
-  b.onclick=()=>openEditor(currentRows[i]);cell.appendChild(b);
- });
-}
-$('filter-apply').onclick=()=>{page=0;loadRoutes();};
-$('refresh').onclick=loadRoutes;
-$('filter-clear').onclick=()=>{$('filter-search').value='';$('filter-from').value='';$('filter-to').value='';$('filter-status').value='';page=0;loadRoutes();};
-$('prev-page').onclick=()=>{if(page>0){page--;loadRoutes();}};
-$('next-page').onclick=()=>{if((page+1)*50<totalRows){page++;loadRoutes();}};
-function openEditor(r){
- selected=r;
- $('editor-title').textContent=`Plano ${r.plan_number}`;
- $('editor-summary').textContent=`${r.loading_on||''} · ${r.city||''} · ${r.vehicle_profile||''} · Complemento: ${r.complement||'—'} · Destino: ${r.destination||'—'} · Peso: ${r.gross_weight??'—'} · Entregas: ${r.delivery_count??'—'} · Valor mercadoria: ${r.merchandise_value??'—'}`;
- $('edit-driver').value=r.driver_name||'';$('edit-plate').value=r.plate||'';
- $('edit-status').value=r.sac_status||'AGUARDANDO';$('edit-notes').value=r.sac_notes||'';
- $('history-content').textContent='';$('editor-backdrop').classList.remove('hidden');
-}
-$('close-editor').onclick=()=>{$('editor-backdrop').classList.add('hidden');selected=null;};
-$('save-edit').onclick=async()=>{
- if(!selected)return;
- const status=$('edit-status').value,notes=$('edit-notes').value.trim();
- if(['OCORRENCIA','DEVOLUCAO','NAO_CONCLUIDA'].includes(status)&&!notes){msg('Informe a observação da ocorrência.',true);return;}
- if(!confirm(`Salvar alterações da rota ${selected.plan_number}?`))return;
- $('save-edit').disabled=true;
- try{
-  const {error}=await db.rpc('pcd_update_route',{
-   p_id:selected.id,p_driver:$('edit-driver').value,p_plate:$('edit-plate').value,
-   p_status:status,p_notes:notes,p_expected_updated_at:selected.updated_at
-  });
-  if(error)throw error;
-  $('editor-backdrop').classList.add('hidden');selected=null;
-  await loadRoutes();await dashboard();msg('Rota atualizada com sucesso. Alteração registrada no histórico.');
- }catch(e){msg('Não foi possível salvar: '+e.message,true);}
- finally{$('save-edit').disabled=false;}
-};
-$('show-history').onclick=async()=>{
- if(!selected)return;
- $('history-content').textContent='Carregando histórico...';
- const {data,error}=await db.rpc('pcd_route_history',{p_id:selected.id});
- if(error){$('history-content').textContent=error.message;return;}
- $('history-content').innerHTML=(data||[]).length?
- table(['Data','Usuário','Antes','Depois'],data.map(x=>[
- new Date(x.created_at).toLocaleString('pt-BR'),x.actor_email||'—',
- JSON.stringify(x.before_data),JSON.stringify(x.after_data)])):'Nenhuma alteração operacional registrada.';
-};
+const $=id=>document.getElementById(id);let db,tab='import',drivers=[],rows=[],pages={routes:0,sac:0},totals={routes:0,sac:0},pending=[],checks=[],modalSave=()=>{};
+const cfg=window.INNOVA_PCD_CONFIG||{};
+function message(s,err=false){$('message').textContent=s;$('message').className='msg'+(err?' error':'');}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function norm(s){return String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');}
+function today(){return new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'});}
+function table(head,data){return '<table><thead><tr>'+head.map(x=>`<th>${esc(x)}</th>`).join('')+'</tr></thead><tbody>'+data.map(r=>'<tr>'+r.map(v=>`<td>${esc(v)}</td>`).join('')+'</tr>').join('')+'</tbody></table>';}
+async function rpc(fn,args={}){const {data,error}=await db.rpc(fn,args);if(error)throw Error(error.message);return data;}
+async function init(){try{if(!cfg.supabaseUrl?.startsWith('https://')||!cfg.supabasePublishableKey||cfg.supabasePublishableKey.includes('SUBSTITUIR'))throw Error('Mantenha o config.js já configurado na V4. A chave pública não está preenchida.');db=createClient(cfg.supabaseUrl,cfg.supabasePublishableKey,{auth:{persistSession:true,autoRefreshToken:true}});const {data}=await db.auth.getSession();if(data.session)await enter(data.session.user);else message('Entre com seu e-mail e senha.');}catch(e){message(e.message,true);}}
+async function enter(user){await rpc('pcd_dashboard');$('who').textContent=user.email;$('login-panel').classList.add('hidden');$('main').classList.remove('hidden');$('logout').classList.remove('hidden');await refreshMetrics();message('Conectado ao banco operacao3C.');}
+$('login').onclick=async()=>{try{$('login').disabled=true;const {data,error}=await db.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});if(error)throw error;await enter(data.user);}catch(e){message('Não foi possível entrar: '+e.message,true);}finally{$('login').disabled=false;}};
+$('logout').onclick=async()=>{await db.auth.signOut();location.reload();};
+async function refreshMetrics(){const a=await rpc('pcd_dashboard');$('metric-routes').textContent=a.total_routes;const day=$('availability-date').value||today();drivers=await rpc('pcd_v5_drivers',{p_date:day});$('metric-drivers').textContent=drivers.length;$('metric-available').textContent=drivers.filter(d=>d.day_status==='DISPONIVEL').length;$('metric-assigned').textContent=drivers.filter(d=>d.day_status==='PROGRAMADO').length;}
+async function showTab(t){tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));for(const x of ['import','routes','availability','sac'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);}catch(e){message(e.message,true);}}
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+$('availability-date').value=today();
+async function loadAvailability(){drivers=await rpc('pcd_v5_drivers',{p_date:$('availability-date').value});const cat=$('availability-category').value,profile=$('availability-profile').value;const shown=drivers.filter(d=>(!cat||d.category===cat)&&(!profile||norm(d.profile)===norm(profile)));$('availability-table').innerHTML=table(['Motorista','Placa','Perfil','Categoria','Status da data','Rotas','Ação'],shown.map(d=>[d.name,d.plate,d.profile,d.category,d.day_status,d.routes_count,'']));$('availability-table').querySelectorAll('tbody tr').forEach((tr,i)=>{const d=shown[i],cell=tr.lastElementChild;const b=document.createElement('button');b.className='small secondary';b.textContent=d.day_status==='DISPONIVEL'?'Marcar indisponível':'Disponibilizar';b.disabled=d.base_status==='INATIVO'||Number(d.routes_count)>0;b.onclick=async()=>{try{const next=d.day_status==='DISPONIVEL'?'INDISPONIVEL':'DISPONIVEL';if(!confirm(`${d.name}: marcar ${next} em ${$('availability-date').value}?`))return;await rpc('pcd_v5_set_availability',{p_driver_id:d.id,p_date:$('availability-date').value,p_status:next});await loadAvailability();await refreshMetrics();message('Disponibilidade atualizada.');}catch(e){message(e.message,true);}};cell.append(b);});}
+$('refresh-availability').onclick=loadAvailability;$('availability-date').onchange=async()=>{await loadAvailability();await refreshMetrics();};$('availability-category').onchange=loadAvailability;$('availability-profile').onchange=loadAvailability;
+async function loadRoutes(which){const search=$(which==='sac'?'sac-search':'route-search').value.trim(),date=$(which==='sac'?'sac-date':'route-date').value||null;const a=await rpc('pcd_v5_routes',{p_search:search,p_date:date,p_limit:50,p_offset:pages[which]*50});totals[which]=a.total;const data=a.rows||[];const headers=['Plano','Data','Cidade','Complemento','Destino','Perfil','Peso','Entregas','Valor NF','Motorista','Placa','Status rota','GreenMile','Tipo','Ação'];const target=$(which==='sac'?'sac-table':'route-table');target.innerHTML=table(headers,data.map(r=>[r.plan_number,r.loading_on,r.city,r.complement,r.destination,r.vehicle_profile,r.gross_weight,r.delivery_count,r.merchandise_value,r.driver_name,r.plate,r.route_status,r.gm_status,r.is_active?r.duplicate_kind:'INATIVA','']));target.querySelectorAll('tbody tr').forEach((tr,i)=>{const cell=tr.lastElementChild,b=document.createElement('button');b.className='small';b.textContent=which==='sac'?'Atualizar SAC':'Programar';b.disabled=!data[i].is_active;b.onclick=()=>which==='sac'?openSAC(data[i]):openAssign(data[i]);cell.append(b);});$(which==='sac'?'sac-page':'route-page').textContent=`${a.total} rotas · página ${pages[which]+1}`;$(which==='sac'?'sac-prev':'route-prev').disabled=pages[which]===0;$(which==='sac'?'sac-next':'route-next').disabled=(pages[which]+1)*50>=a.total;}
+for(const which of ['routes','sac']){const prefix=which==='sac'?'sac':'route';$(prefix+'-filter').onclick=()=>{pages[which]=0;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-prev').onclick=()=>{pages[which]--;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-next').onclick=()=>{pages[which]++;loadRoutes(which).catch(e=>message(e.message,true));};$('refresh-'+which).onclick=()=>loadRoutes(which).catch(e=>message(e.message,true));}
+function modal(title,summary,body,fn){$('modal-title').textContent=title;$('modal-summary').textContent=summary;$('modal-body').innerHTML=body;modalSave=fn;$('modalbg').classList.remove('hidden');}
+$('modal-close').onclick=()=>{$('modalbg').classList.add('hidden');};$('modal-save').onclick=async()=>{try{$('modal-save').disabled=true;await modalSave();$('modalbg').classList.add('hidden');await refreshMetrics();await loadRoutes(tab==='sac'?'sac':'routes');message('Alteração salva com sucesso.');}catch(e){message(e.message,true);}finally{$('modal-save').disabled=false;}};
+async function openAssign(r){const all=await rpc('pcd_v5_drivers',{p_date:r.loading_on});const eligible=all.filter(d=>d.base_status!=='INATIVO'&&norm(d.profile)===norm(r.vehicle_profile)&&(d.day_status==='DISPONIVEL'||(d.day_status==='PROGRAMADO'&&Number(d.routes_count)>0)));const options=eligible.map(d=>`<option value="${d.id}">${esc(d.name)} · ${esc(d.plate)} · ${esc(d.day_status)}${Number(d.routes_count)?' ('+d.routes_count+' rota(s))':''}</option>`).join('');modal('Escalar motorista',`Plano ${r.plan_number} · ${r.loading_on} · ${r.city} · ${r.vehicle_profile}`,`<label>Motorista disponível ou já programado</label><select id="pick-driver"><option value="">Selecione...</option>${options}</select><p class="muted" id="pick-plate">A placa será preenchida automaticamente.</p><p class="note">Segunda rota na mesma data exige confirmação. Motoristas INDISPONÍVEIS e INATIVOS não aparecem.</p>`,async()=>{const id=Number($('pick-driver').value);if(!id)throw Error('Selecione o motorista.');let result=await rpc('pcd_v5_assign',{p_route_id:r.id,p_driver_id:id,p_confirm_second:false});if(result.requires_confirmation){if(!confirm(`Motorista já possui ${result.existing_routes} rota(s) em ${r.loading_on}. Deseja confirmar outra escala?`))throw Error('Escala adicional cancelada.');result=await rpc('pcd_v5_assign',{p_route_id:r.id,p_driver_id:id,p_confirm_second:true});}return result;});$('pick-driver').onchange=()=>{const d=eligible.find(x=>x.id===Number($('pick-driver').value));$('pick-plate').textContent=d?`Placa automática: ${d.plate} · ${d.profile}`:'Selecione um motorista';};}
+function openSAC(r){modal('Acompanhamento SAC',`Plano ${r.plan_number} · ${r.loading_on} · Motorista: ${r.driver_name||'Não escalado'} · Placa: ${r.plate||'—'}`,`<div class="two"><div><label>Status da rota</label><select id="sac-route-status"><option>PROGRAMAR</option><option>EM ROTA</option><option>CONCLUÍDO</option><option>NÃO EMBARCOU</option></select></div><div><label>Status GreenMile</label><select id="sac-gm-status"><option value="">Não informado</option><option>ROTA ATRIBUIDA</option><option>ENTREGANDO</option><option>FINALIZAÇÃO</option><option>GM OK</option><option>NÃO USOU GM</option></select></div></div><label style="margin-top:14px">Observações</label><textarea id="sac-notes" maxlength="4000"></textarea><p class="muted">Não é possível alterar motorista ou placa nesta tela.</p>`,async()=>{await rpc('pcd_v5_sac',{p_route_id:r.id,p_status:$('sac-route-status').value,p_gm:$('sac-gm-status').value||null,p_notes:$('sac-notes').value});});$('sac-route-status').value=r.route_status||'PROGRAMAR';$('sac-gm-status').value=r.gm_status||'';$('sac-notes').value=r.sac_notes||'';}
+function parseDelimited(text,sep){let rows=[],row=[],cell='',quote=false;for(let i=0;i<text.length;i++){let c=text[i];if(c==='"'){if(quote&&text[i+1]==='"'){cell+='"';i++;}else quote=!quote;}else if(c===sep&&!quote){row.push(cell);cell='';}else if((c==='\n'||c==='\r')&&!quote){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);rows.push(row);row=[];cell='';}else cell+=c;}row.push(cell);if(row.some(v=>v.trim()))rows.push(row);return rows;}
+function dateBR(s){s=String(s??'').trim();if(!s)return null;let m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);if(m){let x=`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;if(new Date(x+'T12:00:00Z').toISOString().slice(0,10)!==x)throw Error('Data inválida '+s);return x;}if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;throw Error('Data inválida '+s);}
+function num(s){s=String(s??'').trim().replace(/[R$\s]/g,'');if(!s)return null;if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');else if(/^\d{1,3}(\.\d{3})+$/.test(s))s=s.replace(/\./g,'');const n=Number(s);if(!Number.isFinite(n))throw Error('Número inválido '+s);return n;}
+function convert(obj){const get=n=>{const key=Object.keys(obj).find(k=>norm(k)===norm(n));return String(obj[key]??'').trim();};const plan=get('PLANO');if(!plan)return null;const loading_on=dateBR(get('DATA CAR'));if(!loading_on)throw Error('Plano '+plan+': DATA CAR obrigatória');return {plan_number:plan,complement:get('COMPLEMENTO'),transport:get('TRANS.'),destination:get('DESTINO'),city:get('CIDADE'),neighborhood:get('BAIRRO'),vehicle_profile:get('PERFIL'),gross_weight:num(get('PESO')),delivery_count:num(get('QTD ENTREGA')),invoiced_on:dateBR(get('DATA FATURADO')),operation_type:get('TIPO DE OPERAÇÃO'),merchandise_value:num(get('R$')),loading_on,loading_time:get('HOR. CAR'),driver_name:get('MOTORISTA'),plate:get('PLACA')};}
+$('preview').onclick=async()=>{try{const raw=$('paste').value.trim();if(!raw)throw Error('Cole as rotas com o cabeçalho.');const sep=raw.split(/\r?\n/)[0].includes('\t')?'\t':',';const m=parseDelimited(raw,sep),head=m.shift().map(x=>x.trim());if(!head.some(x=>norm(x)==='PLANO')||!head.some(x=>norm(x)==='DATACAR'))throw Error('Inclua o cabeçalho PLANO e DATA CAR.');pending=m.filter(r=>r.some(v=>v.trim())).map((r,i)=>{try{return convert(Object.fromEntries(head.map((h,j)=>[h,r[j]||''])));}catch(e){throw Error(`Linha ${i+2}: ${e.message}`);}}).filter(Boolean);if(!pending.length||pending.length>1000)throw Error('Envie entre 1 e 1000 rotas.');checks=await rpc('pcd_v5_check_import',{p_rows:pending});const tbody=pending.map((r,i)=>[r.plan_number,r.loading_on,r.city,r.vehicle_profile,r.driver_name,checks[i].duplicate?'DUPLICADA':'NOVA','']);$('import-preview').innerHTML=table(['Plano','Data','Cidade','Perfil','Motorista','Análise','Decisão'],tbody);$('import-preview').querySelectorAll('tbody tr').forEach((tr,i)=>{const cell=tr.lastElementChild;if(checks[i].duplicate){const select=document.createElement('select');select.dataset.index=i;select.innerHTML='<option value="">Escolha...</option><option value="REENTREGA">Reentrega</option><option value="DUPLICADA_INATIVA">Duplicada — inativa</option>';select.onchange=validateImport;cell.append(select);}else cell.textContent='Nova rota';});$('import-count').textContent=`${pending.length} rota(s) · ${checks.filter(x=>x.duplicate).length} duplicada(s)`;validateImport();message('Confira a análise. Duplicidades exigem decisão antes de salvar.');}catch(e){pending=[];checks=[];$('import-save').disabled=true;message(e.message,true);}};
+function validateImport(){$('import-save').disabled=!pending.length||[...$('import-preview').querySelectorAll('select[data-index]')].some(s=>!s.value);}
+$('paste').oninput=()=>{$('import-save').disabled=true;pending=[];};
+$('import-save').onclick=async()=>{try{const decisions=Object.fromEntries([...$('import-preview').querySelectorAll('select[data-index]')].map(s=>[Number(s.dataset.index),s.value]));const payload=pending.map((r,i)=>({...r,decision:decisions[i]||'NOVO'}));if(!confirm(`Confirmar importação de ${payload.length} rotas?`))return;$('import-save').disabled=true;const a=await rpc('pcd_v5_import',{p_rows:payload});$('paste').value='';$('import-preview').innerHTML='';pending=[];await refreshMetrics();message(`Importação salva. Novas: ${a.new} · Reentregas: ${a.redeliveries} · Duplicadas inativas: ${a.inactive_duplicates}.`);}catch(e){message(e.message,true);}finally{$('import-save').disabled=!pending.length;}};
+init();
