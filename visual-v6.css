@@ -62,3 +62,11 @@
 
 /* Central Gmail V2 */
 .gmail-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px}.gmail-metrics>div{background:#f4f7fb;border:1px solid #e4eaf2;border-radius:9px;padding:13px}.gmail-metrics small{display:block;color:#647a90;font-size:12px}.gmail-metrics strong{font-size:23px;font-weight:600;display:block;margin-top:5px;color:#002f6c}.gmail-central table{margin-top:12px}@media(max-width:700px){.gmail-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* V2.1 - rodape de saude compacto */
+.sidebar-foot{padding:12px 7px 5px;font-size:10px;line-height:1.35}
+.sidebar-foot .health-head{font-size:9px;letter-spacing:.06em;margin-bottom:7px}
+.sidebar-foot .health-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:9.5px;line-height:1.65;font-weight:400;color:#cbd9ea;font-variant-numeric:tabular-nums}
+.sidebar-foot .health-line.health-ok{color:#d8e8f6}
+.sidebar-foot .health-location{font-size:9px;margin-top:8px}
+@media(max-width:740px){.sidebar-foot .health-line,.sidebar-foot .health-head,.sidebar-foot .health-location{display:none}}
