@@ -513,8 +513,10 @@ async function loadBilling(){
  const search=$('billing-search').value.trim(),date=billingDateISO($('billing-date').value);
  // Consolidar o conjunto filtrado inteiro, não somente a página visível.
  const allRoutes=[];let routeOffset=0;let expected=0;
+ // A RPC pcd_v8_routes limita p_limit a 50; usar 500 causa 'Paginação inválida'.
+ // Buscar lotes válidos e manter o resumo independente da página visual.
  do{
-  const a=await rpc('pcd_v8_routes',{p_search:search,p_date:date,p_limit:500,p_offset:routeOffset});
+  const a=await rpc('pcd_v8_routes',{p_search:search,p_date:date,p_limit:50,p_offset:routeOffset});
   expected=Number(a.total||0);const batch=a.rows||[];allRoutes.push(...batch);
   routeOffset+=batch.length;
   if(!batch.length)break;
@@ -590,6 +592,8 @@ async function loadBilling(){
   summaryRows.push({id,plan,cityCount:cityList.length,weight,deliveries,goods,freight,toll,comp:Number(comp.amount||0),advance,total,revenue,icms,otherTaxes,totalTaxes,aver,adminCost,cteCost,margin});
  }
  billingSummaryRender(summaryRows);
+ // Caso os filtros reduzam o total, retornar à última página válida.
+ billingPage=Math.min(Math.max(0,billingPage),Math.max(0,Math.ceil(result.length/50)-1));
  const pageStart=billingPage*50;const visibleResult=result.slice(pageStart,pageStart+50);const visibleMetadata=metadata.slice(pageStart,pageStart+50);
  $('billing-table').innerHTML=table(['Plano','Data rota','Qtd. cidades','Cidade determinante','Faixa','Peso','Valor mercadoria','Qtd. entregas','Motorista','Placa','Perfil embarcado','Frete a pagar','Pedágio','Complemento','Total adiantamento','Total a pagar','Receita bruta','ICMS','Demais tributos (provisão)','Total impostos','Averbação','Desp. operacionais','Desp. administrativas','Emissão CT-e','Margem R$ (estimada)','Margem % (estimada)'],visibleResult);
  $('billing-table').querySelectorAll('tbody tr').forEach((tr,i)=>{const meta=visibleMetadata[i],c=billingComplements.get(meta.id)||{amount:0,reason:''};
@@ -610,7 +614,7 @@ async function loadBilling(){
   const profileCell=tr.children[10];profileCell.title='Perfil contratado: '+meta.contractedProfile+' · Perfil embarcado: '+(meta.embarkedProfile||'não identificado');
 
  });
- $('billing-page').textContent=`${billingTotal} registros operacionais · página ${billingPage+1}`;
+ $('billing-page').textContent=`${result.length} rotas consolidadas (${billingTotal} registros operacionais) · página ${billingPage+1}`;
  $('billing-prev').disabled=billingPage===0;$('billing-next').disabled=(billingPage+1)*50>=result.length;
 }
 $('billing-filter').onclick=()=>{billingPage=0;loadBilling().catch(e=>message(e.message,true));};
