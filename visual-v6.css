@@ -132,3 +132,8 @@
 .billing-stats .billing-summary-warning{grid-column:1/-1;padding:2px 0!important;border:0!important;background:transparent!important;margin:0!important}
 @media(max-width:1250px){.billing-stats{grid-template-columns:repeat(4,minmax(0,1fr))!important}}
 @media(max-width:640px){.billing-stats{grid-template-columns:repeat(2,minmax(0,1fr))!important}.billing-stats>div strong{font-size:13px!important}}
+
+/* V2.0.3: filtros de faturamento compactos */
+.billing-filter-grid{display:grid!important;grid-template-columns:minmax(170px,1.5fr) repeat(3,minmax(105px,1fr)) minmax(130px,1fr) minmax(130px,1fr) auto;gap:10px;align-items:end}
+.billing-filter-grid>div{min-width:0}.billing-filter-grid select{width:100%;min-width:0}.billing-filter-actions{display:flex;gap:6px;align-items:end}.billing-filter-actions label{display:none}.billing-filter-actions button{white-space:nowrap}
+@media(max-width:1250px){.billing-filter-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:650px){.billing-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.billing-filter-grid>div:first-child{grid-column:1/-1}}
