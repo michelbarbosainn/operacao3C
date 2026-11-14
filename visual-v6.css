@@ -104,3 +104,9 @@
 #billing-table .billing-comp-input{width:82px;min-width:82px}
 #billing-table .billing-reason-input{display:block;width:132px;min-width:132px;max-width:132px;margin-top:4px;font-size:10px}
 #billing-table th,#billing-table td{white-space:nowrap}
+
+/* Faturamento V1.5: complemento e motivo em uma linha, sem ampliar a altura da rota */
+#billing-table .billing-comp-inline{display:flex;flex-direction:row;align-items:center;gap:5px;white-space:nowrap}
+#billing-table .billing-comp-inline .billing-comp-input{box-sizing:border-box;width:72px;min-width:72px;height:29px;padding:4px 6px;font-size:11px;margin:0}
+#billing-table .billing-comp-inline .billing-reason-input{box-sizing:border-box;display:inline-block;width:112px;min-width:112px;max-width:112px;height:29px;padding:4px 5px;font-size:10px;margin:0}
+#billing-table .billing-comp-inline .billing-reason-input:disabled{opacity:.7}
