@@ -1,5 +1,5 @@
 import {createClient} from 'https://esm.sh/@supabase/supabase-js@2.49.8';
-const $=id=>document.getElementById(id);let db,tab='import',drivers=[],rows=[],pages={routes:0,sac:0},totals={routes:0,sac:0},pending=[],checks=[],nfPending=[],modalSave=()=>{};
+const $=id=>document.getElementById(id);let db,tab='import',drivers=[],rows=[],pages={routes:0,sac:0,occurrences:0},totals={routes:0,sac:0,occurrences:0},pending=[],checks=[],nfPending=[],modalSave=()=>{};
 const cfg=window.INNOVA_PCD_CONFIG||{};
 function message(s,err=false){$('message').textContent=s;$('message').className='msg'+(err?' error':'');}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -13,7 +13,7 @@ $('login').onclick=async()=>{try{$('login').disabled=true;const {data,error}=awa
 $('google-login').onclick=async()=>{try{if(!db)throw Error('Supabase não configurado.');const {error}=await db.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname,queryParams:{hd:'innovasl.com.br',prompt:'select_account'}}});if(error)throw error;}catch(e){message('Falha ao iniciar Google: '+e.message,true);}};
 $('logout').onclick=async()=>{await db.auth.signOut();location.reload();};
 async function refreshMetrics(){const a=await rpc('pcd_dashboard');$('metric-routes').textContent=a.total_routes;const day=$('availability-date').value||today();drivers=await rpc('pcd_v8_drivers',{p_date:day});$('metric-drivers').textContent=drivers.length;$('metric-available').textContent=drivers.filter(d=>d.day_status==='DISPONIVEL').length;$('metric-assigned').textContent=drivers.filter(d=>d.day_status==='PROGRAMADO').length;}
-async function showTab(t){tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','availability','sac'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);}catch(e){message(e.message,true);}}
+async function showTab(t){tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','availability','sac','occurrences'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();}catch(e){message(e.message,true);}}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>showTab(b.dataset.go));
 $('availability-date').value=today();
@@ -160,10 +160,12 @@ async function manageOccurrence(occId,route){
   const [history,files]=await Promise.all([rpc('pcd_v92_history',{p_occurrence_id:occId}),rpc('pcd_v92_attachments_for_occurrence',{p_occurrence_id:occId})]);
   const hasInitial=(history.emails||[]).some(x=>x.kind==='INICIAL');
   const initialSent=(history.emails||[]).some(x=>x.kind==='INICIAL'&&x.status==='ENVIADO');
+  const pendingInitial=(history.emails||[]).find(x=>x.kind==='INICIAL'&&['PENDENTE','ERRO'].includes(x.status));
   const rows=(history.emails||[]).map(x=>`<div class="occ-history">${esc(x.kind)} · <b>${esc(x.status)}</b> · ${new Date(x.requested_at).toLocaleString('pt-BR')}${x.error?`<p class="error">${esc(x.error)}</p>`:''}</div>`).join('');
   const fileRows=files.map(f=>`<label class="occ-file"><input type="checkbox" class="occ-attach-select" value="${Number(f.id)}"> ${esc(f.name)} <small>(${Math.ceil(f.size/1024)} KB)</small></label>`).join('');
   const html=`<div class="occ-v92"><div class="note">Homologação: envio exclusivo para <b>michelbarbosa@innovasl.com.br</b>. O envio é realizado por função segura do Supabase, sem Google Apps Script.</div>
   <h3>Evidências e anexos</h3><input id="occ-upload" type="file" accept=".pdf,.jpg,.jpeg,.png" multiple><button class="small" id="occ-upload-btn">Adicionar anexos</button><p class="muted">Até 10 MB por arquivo; PDF, JPG ou PNG. Para nota parcial/comprovante de encerramento, envie PDF.</p><div class="occ-files">${fileRows||'<small>Nenhum anexo cadastrado</small>'}</div>
+  ${pendingInitial?`<div class="occ-retry-box"><b>Envio inicial pendente — fila #${Number(pendingInitial.id)}</b><p>Reprocesse a solicitação existente, sem criar outra ocorrência.</p><button id="occ-retry-initial" type="button">Processar envio pendente</button></div>`:''}
   <h3>Envio de ocorrência</h3><label>Complemento (se houver)</label><textarea id="occ-complement" rows="2" placeholder="Informações adicionais para o e-mail complementar"></textarea>
   <button id="occ-send-v92" class="small">${hasInitial?'Enviar e-mail complementar':'Enviar ocorrência inicial de teste'}</button><p class="muted">Selecione os anexos que devem acompanhar este envio. Novos anexos podem ser incluídos posteriormente.</p>
   <h3>Histórico de envios</h3>${rows||'<p class="muted">Nenhum envio nesta versão.</p>'}
@@ -180,6 +182,7 @@ async function manageOccurrence(occId,route){
     }message('Anexos salvos.');await manageOccurrence(occId,route);
    }catch(e){message('Falha no anexo: '+e.message,true);}
   };
+  if(pendingInitial){$('occ-retry-initial').onclick=async()=>{const b=$('occ-retry-initial');b.disabled=true;try{await processExistingQueue(Number(pendingInitial.id));await manageOccurrence(occId,route);}catch(e){message('Envio não confirmado: '+e.message,true);b.disabled=false;}};}
   $('occ-send-v92').onclick=async()=>{
    const btn=$('occ-send-v92');try{
     if(hasInitial&&!initialSent)throw Error('O envio inicial ainda não foi confirmado. Consulte o histórico.');
@@ -211,4 +214,39 @@ function switchImport(kind){$('import-routes-area').classList.toggle('hidden',ki
 $('switch-routes').onclick=()=>switchImport('routes');$('switch-invoices').onclick=()=>switchImport('invoices');
 function localStamp(v){return v?new Date(v).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'}):'Sem registro';}
 async function refreshHealth(){try{const h=await rpc('pcd_v91_health');$('health-db').textContent='● Banco de dados · OK';$('health-invoices').textContent='Notas · '+localStamp(h.last_invoices);$('health-routes').textContent='Rotas · '+localStamp(h.last_routes);}catch(e){$('health-db').textContent='● Banco de dados · Verificar';console.warn('Monitoramento:',e.message);}}
+
+// V9.4 — dashboard de ocorrências. RPC usa autenticação e paginação no servidor.
+async function processExistingQueue(id){
+ if(!Number.isSafeInteger(id)||id<1)throw Error('Fila inválida');
+ await rpc('pcd_v94_prepare_retry',{p_queue_id:id});
+ message('Processando fila #'+id+' pelo Resend...');
+ const {data,error}=await db.functions.invoke('pcd-occurrence-send',{body:{queue_id:id}});
+ if(error){let detail=error.message;try{const p=await error.context?.json?.();detail=p?.error||p?.message||detail;}catch{}throw Error('Fila #'+id+': '+detail);}
+ if(!data?.ok)throw Error('Fila #'+id+': '+(data?.error||'Envio não confirmado'));
+ message('Fila #'+id+' aceita pelo Resend. ID: '+(data.provider_id||'não informado'));
+}
+async function loadOccurrences(){
+ const view=$('occ-view').value,search=$('occ-search').value.trim(),date=$('occ-date').value||null;
+ const data=await rpc('pcd_v94_list_occurrences',{p_view:view,p_date:date,p_search:search,p_limit:30,p_offset:pages.occurrences*30});
+ totals.occurrences=data.total||0;
+ const m=data.metrics||{};$('occ-metric-open').textContent=m.open??'—';$('occ-metric-closed').textContent=m.closed??'—';$('occ-metric-email').textContent=m.email_attention??'—';
+ const items=data.rows||[];
+ $('occ-list').innerHTML=table(['Ocorrência','Abertura','Plano','Cliente','Cidade','Motivo','Situação','E-mail','Ação'],items.map(o=>['OC-'+String(o.id).padStart(6,'0'),new Date(o.created_at).toLocaleString('pt-BR'),o.plan_number,o.customer_name,o.city,o.reason,o.status,o.email_status||'SEM ENVIO','']));
+ $('occ-list').querySelectorAll('tbody tr').forEach((tr,i)=>{
+  const o=items[i],s=tr.children[6],e=tr.children[7];s.textContent='';e.textContent='';
+  const b=document.createElement('span');b.className='badge '+(o.status==='ENCERRADA'?'ok':'warn');b.textContent=o.status;s.append(b);
+  const email=document.createElement('span');email.className='badge '+(o.email_status==='ENVIADO'?'ok':o.email_status==='ERRO'?'bad':'warn');email.textContent=o.email_status||'SEM ENVIO';e.append(email);
+  const actions=tr.lastElementChild,manage=document.createElement('button');manage.className='small';manage.textContent='Gerenciar';manage.onclick=()=>manageOccurrence(Number(o.id),{plan_number:o.plan_number,city:o.city});actions.append(manage);
+  if(['PENDENTE','ERRO'].includes(o.email_status)&&o.pending_queue_id){const retry=document.createElement('button');retry.className='small secondary';retry.style.marginLeft='6px';retry.textContent='Processar envio pendente';retry.onclick=async()=>{retry.disabled=true;try{await processExistingQueue(Number(o.pending_queue_id));await loadOccurrences();}catch(err){message(err.message,true);retry.disabled=false;}};actions.append(retry);}
+ });
+ $('occ-page').textContent=(data.total||0)+' ocorrência(s) · página '+(pages.occurrences+1);
+ $('occ-prev').disabled=pages.occurrences===0;$('occ-next').disabled=(pages.occurrences+1)*30>=data.total;
+}
+$('occ-refresh').onclick=()=>loadOccurrences().catch(e=>message(e.message,true));
+$('occ-filter').onclick=()=>{pages.occurrences=0;loadOccurrences().catch(e=>message(e.message,true));};
+$('occ-view').onchange=$('occ-date').onchange=()=>{pages.occurrences=0;loadOccurrences().catch(e=>message(e.message,true));};
+$('occ-search').onkeydown=e=>{if(e.key==='Enter')$('occ-filter').click();};
+$('occ-prev').onclick=()=>{pages.occurrences=Math.max(0,pages.occurrences-1);loadOccurrences().catch(e=>message(e.message,true));};
+$('occ-next').onclick=()=>{pages.occurrences++;loadOccurrences().catch(e=>message(e.message,true));};
+
 init().catch(e=>{console.error('Falha na inicialização do INNOVA PCD:',e);message('Falha na inicialização: '+(e?.message||String(e)),true);});
