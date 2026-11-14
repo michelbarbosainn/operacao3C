@@ -12,6 +12,30 @@ async function enter(user){if(!String(user.email||'').toLowerCase().endsWith('@i
 $('login').onclick=async()=>{try{$('login').disabled=true;const {data,error}=await db.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});if(error)throw error;await enter(data.user);}catch(e){message('Não foi possível entrar: '+e.message,true);}finally{$('login').disabled=false;}};
 $('google-login').onclick=async()=>{try{if(!db)throw Error('Supabase não configurado.');const {error}=await db.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname,queryParams:{hd:'innovasl.com.br',prompt:'select_account'}}});if(error)throw error;}catch(e){message('Falha ao iniciar Google: '+e.message,true);}};
 $('logout').onclick=async()=>{await db.auth.signOut();location.reload();};
+
+// Gmail OAuth: a funcao START valida a sessao e o UID no servidor.
+$('gmail-connect').onclick=async()=>{
+ const btn=$('gmail-connect'), status=$('gmail-connect-status');
+ try {
+  btn.disabled=true;
+  status.textContent='Preparando autorizacao segura...';
+  if(!db) throw Error('Supabase nao inicializado.');
+  const {data:{session},error:sessionError}=await db.auth.getSession();
+  if(sessionError||!session?.access_token) throw Error('Sessao expirada. Entre novamente no sistema.');
+  const response=await fetch(`${cfg.supabaseUrl}/functions/v1/pcd-gmail-oauth-start`,{
+   method:'POST',
+   headers:{'Authorization':`Bearer ${session.access_token}`,'Content-Type':'application/json','apikey':cfg.supabasePublishableKey},
+   body:'{}'
+  });
+  const payload=await response.json().catch(()=>({}));
+  if(!response.ok) throw Error(payload.error||`Falha na autorizacao (HTTP ${response.status}).`);
+  const url=new URL(payload.authorization_url||'');
+  if(url.origin!=='https://accounts.google.com'||url.pathname!=='/o/oauth2/v2/auth') throw Error('Endereco de autorizacao inesperado.');
+  status.textContent='Redirecionando ao Google...';
+  window.location.assign(url.href);
+ }catch(e){status.textContent='Erro: '+e.message;message('Gmail: '+e.message,true);btn.disabled=false;}
+};
+
 async function refreshMetrics(){const a=await rpc('pcd_dashboard');$('metric-routes').textContent=a.total_routes;const day=$('availability-date').value||today();drivers=await rpc('pcd_v8_drivers',{p_date:day});$('metric-drivers').textContent=drivers.length;$('metric-available').textContent=drivers.filter(d=>d.day_status==='DISPONIVEL').length;$('metric-assigned').textContent=drivers.filter(d=>d.day_status==='PROGRAMADO').length;}
 async function showTab(t){tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','availability','sac','occurrences','recipients','reasons'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
