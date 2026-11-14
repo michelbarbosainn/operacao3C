@@ -83,3 +83,17 @@
 .billing-toll-modal.hidden{display:none}
 .billing-toll-dialog{background:white;width:min(460px,100%);border-radius:12px;padding:22px;box-shadow:0 18px 50px #001e3640;display:grid;gap:10px}
 .billing-toll-dialog h2{font-size:17px;margin:0;color:#082d52}.billing-toll-dialog p{margin:0}.billing-toll-dialog label{font-size:12px;color:#32536d}.billing-toll-dialog input{width:100%}.billing-toll-hint{font-size:12px;color:#5d7488}.billing-toll-error{color:#b42318;font-size:12px;min-height:16px}.billing-toll-dialog .row{justify-content:flex-end}
+
+/* Faturamento V1.3: ações discretas e consulta contextual */
+.billing-register-toll{appearance:none;background:transparent!important;border:0!important;color:#155c9d!important;border-radius:4px!important;padding:3px 2px!important;font-size:11px!important;font-weight:500;cursor:pointer;text-decoration:none;white-space:nowrap}
+.billing-register-toll:hover,.billing-city-link:hover{text-decoration:underline;background:#eff6fd!important}
+.billing-city-link{appearance:none;border:0;background:transparent;color:#155c9d;font:inherit;font-weight:500;cursor:pointer;padding:3px 2px;border-radius:4px}
+.billing-reason-input{width:175px;min-width:175px;max-width:175px;padding:7px;font-size:11px;background:#fff;border:1px solid #d8e4ef;border-radius:6px}
+.billing-reason-input:disabled{background:#f5f7fa;color:#8493a5}
+.billing-reason-required{border-color:#c67a28}
+.billing-cities-dialog{width:min(520px,100%);gap:14px}
+.billing-cities-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.billing-cities-close{background:transparent;border:0;font-size:25px;line-height:1;color:#637b96;cursor:pointer;padding:0 4px}
+.billing-cities-table{width:100%;border-collapse:collapse;font-size:12px}
+.billing-cities-table th,.billing-cities-table td{padding:10px 9px;border-bottom:1px solid #e7edf5;text-align:left}
+.billing-cities-table th{font-weight:600;background:#f5f8fc;color:#315575}
