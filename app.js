@@ -8,13 +8,13 @@ function today(){return new Date().toLocaleDateString('en-CA',{timeZone:'America
 function table(head,data){return '<table><thead><tr>'+head.map(x=>`<th>${esc(x)}</th>`).join('')+'</tr></thead><tbody>'+data.map(r=>'<tr>'+r.map(v=>`<td>${esc(v)}</td>`).join('')+'</tr>').join('')+'</tbody></table>';}
 async function rpc(fn,args={}){const {data,error}=await db.rpc(fn,args);if(error)throw Error(error.message);return data;}
 async function init(){try{if(!cfg.supabaseUrl?.startsWith('https://')||!cfg.supabasePublishableKey||cfg.supabasePublishableKey.includes('SUBSTITUIR'))throw Error('Mantenha o config.js já configurado na V4. A chave pública não está preenchida.');db=createClient(cfg.supabaseUrl,cfg.supabasePublishableKey,{auth:{persistSession:true,autoRefreshToken:true}});const {data}=await db.auth.getSession();if(data.session)await enter(data.session.user);else message('Acesse com seu Google corporativo. O acesso por senha permanece temporariamente durante a migração.');}catch(e){message(e.message,true);}}
-async function enter(user){if(!String(user.email||'').toLowerCase().endsWith('@innovasl.com.br')){await db.auth.signOut();throw Error('Acesso restrito a contas corporativas @innovasl.com.br.');}await rpc('pcd_dashboard');$('who').textContent=user.email;$('login-panel').classList.add('hidden');$('main').classList.remove('hidden');$('logout').classList.remove('hidden');await refreshMetrics();await showTab('routes');await refreshHealth();$('message').classList.add('hidden');}
+async function enter(user){if(!String(user.email||'').toLowerCase().endsWith('@innovasl.com.br')){await db.auth.signOut();throw Error('Acesso restrito a contas corporativas @innovasl.com.br.');}await rpc('pcd_dashboard');$('who').textContent=user.email;const financeAdmin=String(user.email||'').toLowerCase()==='michelbarbosa@innovasl.com.br';$('finance-params-nav').classList.toggle('hidden',!financeAdmin);$('login-panel').classList.add('hidden');$('main').classList.remove('hidden');$('logout').classList.remove('hidden');await refreshMetrics();await showTab('routes');await refreshHealth();$('message').classList.add('hidden');}
 $('login').onclick=async()=>{try{$('login').disabled=true;const {data,error}=await db.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});if(error)throw error;await enter(data.user);}catch(e){message('Não foi possível entrar: '+e.message,true);}finally{$('login').disabled=false;}};
 $('google-login').onclick=async()=>{try{if(!db)throw Error('Supabase não configurado.');const {error}=await db.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname,queryParams:{hd:'innovasl.com.br',prompt:'select_account'}}});if(error)throw error;}catch(e){message('Falha ao iniciar Google: '+e.message,true);}};
 $('logout').onclick=async()=>{await db.auth.signOut();location.reload();};
 
 async function refreshMetrics(){const a=await rpc('pcd_dashboard');$('metric-routes').textContent=a.total_routes;const day=$('availability-date').value||today();drivers=await rpc('pcd_v8_drivers',{p_date:day});$('metric-drivers').textContent=drivers.length;$('metric-available').textContent=drivers.filter(d=>d.day_status==='DISPONIVEL').length;$('metric-assigned').textContent=drivers.filter(d=>d.day_status==='PROGRAMADO').length;}
-async function showTab(t){tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','availability','sac','occurrences','recipients','reasons'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='billing')await loadBilling();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
+async function showTab(t){if(t==='finance-params'&&$('finance-params-nav').classList.contains('hidden')){message('Acesso restrito ao administrador.',true);return;}tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','finance-params','availability','sac','occurrences','recipients','reasons'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='billing')await loadBilling();if(t==='finance-params')await loadFinanceParams();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>showTab(b.dataset.go));
 $('availability-date').value=today();
@@ -416,7 +416,48 @@ async function billingInvoices(plans){
  }
  return rows;
 }
+let financeParamsCache=[];
+async function financeGetParams(){
+ const records=await rpc('pcd_finance_parameters_list');
+ financeParamsCache=Array.isArray(records)?records:[];
+ return financeParamsCache;
+}
+function financeRate(key,routeDate){
+ const valid=financeParamsCache.filter(x=>x.parameter_code===key&&x.effective_from<=routeDate).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)));
+ return valid.length?Number(valid[0].rate_percent):null;
+}
+function financePercent(v){return v==null?'Não configurado':Number(v).toLocaleString('pt-BR',{maximumFractionDigits:5})+'%';}
+async function loadFinanceParams(){
+ const data=await financeGetParams();
+ const names={ICMS:'ICMS',AVERBACAO:'Averbação',ISS:'ISS',IRPJ:'IRPJ',CSLL:'CSLL'};
+ const basis={ICMS:'Receita bruta',AVERBACAO:'Valor mercadoria',ISS:'Conforme operação',IRPJ:'A definir com contabilidade',CSLL:'A definir com contabilidade'};
+ const tbody=$('finance-params-body');tbody.textContent='';
+ for(const code of Object.keys(names)){
+  const history=data.filter(x=>x.parameter_code===code).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)));
+  const active=history.find(x=>x.effective_from<=today());
+  const tr=document.createElement('tr');
+  for(const val of [names[code],active?financePercent(active.rate_percent):'Não configurado',basis[code],active?billingBR(active.effective_from):'—']){const td=document.createElement('td');td.textContent=val;tr.append(td);}
+  tbody.append(tr);
+ }
+ const historyBody=$('finance-history-body');historyBody.textContent='';
+ for(const x of data.slice().sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)))){
+  const tr=document.createElement('tr');for(const val of [names[x.parameter_code]||x.parameter_code,financePercent(x.rate_percent),billingBR(x.effective_from),x.created_by_email||'—']){const td=document.createElement('td');td.textContent=val;tr.append(td);}historyBody.append(tr);
+ }
+}
+$('finance-effective').value=today();
+$('finance-save').onclick=async()=>{
+ const code=$('finance-code').value;
+ const raw=$('finance-rate').value.trim().replace(',','.');const rate=Number(raw);
+ const date=$('finance-effective').value;
+ if(!raw||!Number.isFinite(rate)||rate<0||rate>100){$('finance-error').textContent='Informe uma taxa válida entre 0 e 100%.';return;}
+ if(!date||date<today()){$('finance-error').textContent='A vigência deve ser hoje ou uma data futura.';return;}
+ if(!confirm('Cadastrar nova taxa de '+rate+'% para '+code+' a partir de '+billingBR(date)+'? O histórico será preservado.'))return;
+ const button=$('finance-save');button.disabled=true;$('finance-error').textContent='';
+ try{await rpc('pcd_finance_parameters_save',{p_code:code,p_rate_percent:rate,p_effective_from:date});await loadFinanceParams();$('finance-rate').value='';message('Parâmetro cadastrado com sucesso.');}
+ catch(e){$('finance-error').textContent=e.message;}finally{button.disabled=false;}
+};
 async function loadBilling(){
+ await financeGetParams();
  const search=$('billing-search').value.trim(),date=billingDateISO($('billing-date').value);
  const a=await rpc('pcd_v8_routes',{p_search:search,p_date:date,p_limit:50,p_offset:billingPage*50});
  billingTotal=a.total||0;const data=a.rows||[];$('billing-total').textContent=billingTotal;
@@ -466,12 +507,17 @@ async function loadBilling(){
   const details=cityList.map(city=>{const candidates=matched.filter(x=>x.routeCity===city).sort((a,b)=>Number(b.band)-Number(a.band)||Number(b.distance_km||0)-Number(a.distance_km||0));return {city,band:candidates[0]?.band??null,distance:candidates[0]?.distance_km??null};}).sort((a,b)=>Number(b.band||0)-Number(a.band||0)||Number(b.distance||0)-Number(a.distance||0));
   const weight=group.reduce((sum,x)=>sum+(Number(x.gross_weight)||0),0);
   const deliveries=group.reduce((sum,x)=>sum+(Number(x.delivery_count)||0),0);
+  const icmsRate=financeRate('ICMS',dateKey);
+  const averRate=financeRate('AVERBACAO',dateKey);
+  const goods=invoiceValues.get(plan)?.sum??null;
+  const icms=revenue==null||icmsRate==null?null:revenue*icmsRate/100;
+  const aver=goods==null||averRate==null?null:goods*averRate/100;
   const advance=freight==null||toll==null?null:(freight+Number(comp.amount||0))*0.5+toll;
   const total=freight==null||toll==null?null:freight+toll+Number(comp.amount||0);
-  result.push([plan,billingBR(dateKey),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingKg(weight),billingMoney(invoiceValues.get(plan)?.sum??null),deliveries,r.driver_name||'—',r.plate||'—',embarkedProfile||'Não identificado',billingMoney(freight),toll==null?'Cadastrar pedágio':billingMoney(toll),billingMoney(comp.amount),billingMoney(advance),billingMoney(total),billingMoney(revenue),revenue==null?'—':billingMoney(revenue*0.12)]);
+  result.push([plan,billingBR(dateKey),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingKg(weight),billingMoney(invoiceValues.get(plan)?.sum??null),deliveries,r.driver_name||'—',r.plate||'—',embarkedProfile||'Não identificado',billingMoney(freight),toll==null?'Cadastrar pedágio':billingMoney(toll),billingMoney(comp.amount),billingMoney(advance),billingMoney(total),billingMoney(revenue),billingMoney(icms),billingMoney(aver)]);
   metadata.push({id,freight,toll,plan,city:decisive?.routeCity||'',details,contractedProfile,embarkedProfile});
  }
- $('billing-table').innerHTML=table(['Plano','Data rota','Qtd. cidades','Cidade determinante','Faixa','Peso','Valor mercadoria','Qtd. entregas','Motorista','Placa','Perfil embarcado','Frete a pagar','Pedágio','Complemento','Total adiantamento','Total a pagar','Receita bruta','ICMS 12%'],result);
+ $('billing-table').innerHTML=table(['Plano','Data rota','Qtd. cidades','Cidade determinante','Faixa','Peso','Valor mercadoria','Qtd. entregas','Motorista','Placa','Perfil embarcado','Frete a pagar','Pedágio','Complemento','Total adiantamento','Total a pagar','Receita bruta','ICMS','Averbação'],result);
  $('billing-table').querySelectorAll('tbody tr').forEach((tr,i)=>{const meta=metadata[i],c=billingComplements.get(meta.id)||{amount:0,reason:''};
   const amount=document.createElement('input');amount.type='number';amount.min='0';amount.step='0.01';amount.className='billing-comp-input';amount.value=c.amount||'';amount.placeholder='0,00';amount.title='Complemento simulado; ainda não gravado no banco';
   const reason=document.createElement('select');reason.className='billing-reason-input';for(const [value,label] of [['','Selecione o motivo'],...billingReasonOptions.map(x=>[x,x])]){const option=document.createElement('option');option.value=value;option.textContent=label;reason.append(option);}reason.value=billingReasonOptions.includes(c.reason)?c.reason:'';reason.title='Motivo do complemento';reason.disabled=!(Number(c.amount)>0);
@@ -490,3 +536,5 @@ $('billing-filter').onclick=()=>{billingPage=0;loadBilling().catch(e=>message(e.
 $('billing-refresh').onclick=()=>loadBilling().catch(e=>message(e.message,true));
 $('billing-prev').onclick=()=>{billingPage=Math.max(0,billingPage-1);loadBilling().catch(e=>message(e.message,true));};
 $('billing-next').onclick=()=>{billingPage++;loadBilling().catch(e=>message(e.message,true));};
+
+$('finance-refresh').onclick=()=>loadFinanceParams().catch(e=>message(e.message,true));
