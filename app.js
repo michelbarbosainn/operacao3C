@@ -429,8 +429,8 @@ function financeRate(key,routeDate){
 function financePercent(v){return v==null?'Não configurado':Number(v).toLocaleString('pt-BR',{maximumFractionDigits:5})+'%';}
 async function loadFinanceParams(){
  const data=await financeGetParams();
- const names={ICMS:'ICMS',AVERBACAO:'Averbação',ISS:'ISS',IRPJ:'IRPJ',CSLL:'CSLL'};
- const basis={ICMS:'Receita bruta',AVERBACAO:'Valor mercadoria',ISS:'Conforme operação',IRPJ:'A definir com contabilidade',CSLL:'A definir com contabilidade'};
+ const names={ICMS:'ICMS',AVERBACAO:'Averbação',ISS:'ISS',IRPJ:'IRPJ',CSLL:'CSLL',OUTROS_TRIBUTOS:'Demais tributos (provisão gerencial)'};
+ const basis={ICMS:'Receita bruta',AVERBACAO:'Valor mercadoria',ISS:'Conforme operação',IRPJ:'A definir com contabilidade',CSLL:'A definir com contabilidade',OUTROS_TRIBUTOS:'Receita bruta · estimativa gerencial'};
  const tbody=$('finance-params-body');tbody.textContent='';
  for(const code of Object.keys(names)){
   const history=data.filter(x=>x.parameter_code===code).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)));
@@ -509,15 +509,18 @@ async function loadBilling(){
   const deliveries=group.reduce((sum,x)=>sum+(Number(x.delivery_count)||0),0);
   const icmsRate=financeRate('ICMS',dateKey);
   const averRate=financeRate('AVERBACAO',dateKey);
+  const otherTaxRate=financeRate('OUTROS_TRIBUTOS',dateKey);
   const goods=invoiceValues.get(plan)?.sum??null;
   const icms=revenue==null||icmsRate==null?null:revenue*icmsRate/100;
   const aver=goods==null||averRate==null?null:goods*averRate/100;
+  const otherTaxes=revenue==null||otherTaxRate==null?null:revenue*otherTaxRate/100;
+  const totalTaxes=icms==null||otherTaxes==null?null:icms+otherTaxes;
   const advance=freight==null||toll==null?null:(freight+Number(comp.amount||0))*0.5+toll;
   const total=freight==null||toll==null?null:freight+toll+Number(comp.amount||0);
-  result.push([plan,billingBR(dateKey),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingKg(weight),billingMoney(invoiceValues.get(plan)?.sum??null),deliveries,r.driver_name||'—',r.plate||'—',embarkedProfile||'Não identificado',billingMoney(freight),toll==null?'Cadastrar pedágio':billingMoney(toll),billingMoney(comp.amount),billingMoney(advance),billingMoney(total),billingMoney(revenue),billingMoney(icms),billingMoney(aver)]);
+  result.push([plan,billingBR(dateKey),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingKg(weight),billingMoney(invoiceValues.get(plan)?.sum??null),deliveries,r.driver_name||'—',r.plate||'—',embarkedProfile||'Não identificado',billingMoney(freight),toll==null?'Cadastrar pedágio':billingMoney(toll),billingMoney(comp.amount),billingMoney(advance),billingMoney(total),billingMoney(revenue),billingMoney(icms),billingMoney(otherTaxes),billingMoney(totalTaxes),billingMoney(aver)]);
   metadata.push({id,freight,toll,plan,city:decisive?.routeCity||'',details,contractedProfile,embarkedProfile});
  }
- $('billing-table').innerHTML=table(['Plano','Data rota','Qtd. cidades','Cidade determinante','Faixa','Peso','Valor mercadoria','Qtd. entregas','Motorista','Placa','Perfil embarcado','Frete a pagar','Pedágio','Complemento','Total adiantamento','Total a pagar','Receita bruta','ICMS','Averbação'],result);
+ $('billing-table').innerHTML=table(['Plano','Data rota','Qtd. cidades','Cidade determinante','Faixa','Peso','Valor mercadoria','Qtd. entregas','Motorista','Placa','Perfil embarcado','Frete a pagar','Pedágio','Complemento','Total adiantamento','Total a pagar','Receita bruta','ICMS','Demais tributos (provisão)','Total impostos','Averbação'],result);
  $('billing-table').querySelectorAll('tbody tr').forEach((tr,i)=>{const meta=metadata[i],c=billingComplements.get(meta.id)||{amount:0,reason:''};
   const amount=document.createElement('input');amount.type='number';amount.min='0';amount.step='0.01';amount.className='billing-comp-input';amount.value=c.amount||'';amount.placeholder='0,00';amount.title='Complemento simulado; ainda não gravado no banco';
   const reason=document.createElement('select');reason.className='billing-reason-input';for(const [value,label] of [['','Selecione o motivo'],...billingReasonOptions.map(x=>[x,x])]){const option=document.createElement('option');option.value=value;option.textContent=label;reason.append(option);}reason.value=billingReasonOptions.includes(c.reason)?c.reason:'';reason.title='Motivo do complemento';reason.disabled=!(Number(c.amount)>0);
