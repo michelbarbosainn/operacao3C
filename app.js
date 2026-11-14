@@ -13,7 +13,7 @@ $('login').onclick=async()=>{try{$('login').disabled=true;const {data,error}=awa
 $('google-login').onclick=async()=>{try{if(!db)throw Error('Supabase não configurado.');const {error}=await db.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname,queryParams:{hd:'innovasl.com.br',prompt:'select_account'}}});if(error)throw error;}catch(e){message('Falha ao iniciar Google: '+e.message,true);}};
 $('logout').onclick=async()=>{await db.auth.signOut();location.reload();};
 async function refreshMetrics(){const a=await rpc('pcd_dashboard');$('metric-routes').textContent=a.total_routes;const day=$('availability-date').value||today();drivers=await rpc('pcd_v8_drivers',{p_date:day});$('metric-drivers').textContent=drivers.length;$('metric-available').textContent=drivers.filter(d=>d.day_status==='DISPONIVEL').length;$('metric-assigned').textContent=drivers.filter(d=>d.day_status==='PROGRAMADO').length;}
-async function showTab(t){tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','availability','sac','occurrences','recipients'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();}catch(e){message(e.message,true);}}
+async function showTab(t){tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','availability','sac','occurrences','recipients','reasons'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>showTab(b.dataset.go));
 $('availability-date').value=today();
@@ -275,3 +275,29 @@ function editRecipient(item){
 $('recipient-refresh').onclick=()=>loadRecipients().catch(e=>message(e.message,true));
 $('recipient-search').oninput=()=>loadRecipients().catch(e=>message(e.message,true));
 $('recipient-add').onclick=()=>editRecipient(null);
+
+// V9.8 - Motivos e ranking. Alteracoes autorizadas exclusivamente pelo Supabase.
+async function loadReasons(){
+ const items=await rpc('pcd_oc_list_reasons',{p_search:$('reason-search').value.trim(),p_include_inactive:true});
+ const status=$('reason-status').value;
+ const filtered=items.filter(x=>status==='TODOS'||(status==='ATIVOS'&&x.active)||(status==='INATIVOS'&&!x.active));
+ $('reason-table').innerHTML=table(['Motivo','Grupo','Utilizações','Status','Observação','Ação'],filtered.map(x=>[x.name,x.reason_group||'',String(x.usage_count),'',x.notes||'','']));
+ $('reason-table').querySelectorAll('tbody tr').forEach((tr,i)=>{
+  const x=filtered[i],badge=document.createElement('span');badge.className='badge '+(x.active?'oc-open':'oc-cancelled');badge.textContent=x.active?'ATIVO':'INATIVO';tr.children[3].append(badge);
+  const btn=document.createElement('button');btn.className='small secondary';btn.textContent='Editar';btn.onclick=()=>editReason(x);tr.lastElementChild.append(btn);
+ });
+}
+function editReason(item){
+ $('modal-title').textContent=item?'Editar motivo':'Novo motivo';
+ $('modal-summary').textContent=item&&Number(item.usage_count)>0?'Motivo já utilizado: para preservar o histórico, não é permitido renomeá-lo.':'Somente motivos ATIVOS aparecem no seletor do SAC.';
+ $('modal-body').innerHTML=`<label>Motivo</label><input id="reason-name" maxlength="120" value="${esc(item?.name||'')}" ${item&&Number(item.usage_count)>0?'readonly':''}><label style="margin-top:12px">Grupo</label><input id="reason-group" maxlength="80" value="${esc(item?.reason_group||'')}"><label style="margin-top:12px">Observação</label><textarea id="reason-notes" maxlength="500">${esc(item?.notes||'')}</textarea><label style="margin-top:12px;display:flex;align-items:center;gap:8px"><input id="reason-active" type="checkbox" style="width:auto" ${item?.active?'checked':''}> Motivo ATIVO</label>`;
+ $('modalbg').classList.remove('hidden');$('modal-save').classList.remove('hidden');
+ modalSave=async()=>{
+  await rpc('pcd_oc_save_reason',{p_id:item?.id||null,p_name:$('reason-name').value,p_active:$('reason-active').checked,p_group:$('reason-group').value,p_notes:$('reason-notes').value});
+  $('modalbg').classList.add('hidden');await loadReasons();message('Motivo atualizado. O ranking sera recalculado ao abrir a proxima ocorrencia.');
+ };
+}
+$('reason-refresh').onclick=()=>loadReasons().catch(e=>message(e.message,true));
+$('reason-search').oninput=()=>loadReasons().catch(e=>message(e.message,true));
+$('reason-status').onchange=()=>loadReasons().catch(e=>message(e.message,true));
+$('reason-add').onclick=()=>editReason(null);
