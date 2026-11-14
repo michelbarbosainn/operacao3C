@@ -409,7 +409,7 @@ async function billingInvoices(plans){
  const rows=[];const unique=[...new Set(plans.map(String).filter(Boolean))];
  // Consulta por plano, não por cidade da rota. A paginação evita truncar as notas.
  for(let i=0;i<unique.length;i+=20){const part=unique.slice(i,i+20);let offset=0;
-  while(true){const {data,error}=await db.from('pcd_v8_invoices').select('plan_number,city').in('plan_number',part).range(offset,offset+999);
+  while(true){const {data,error}=await db.from('pcd_v8_invoices').select('plan_number,city,invoice_number,customer_code,invoice_value').in('plan_number',part).range(offset,offset+999);
    if(error)throw Error('Não foi possível consultar todas as cidades nas notas fiscais: '+error.message);
    rows.push(...(data||[]));if(!data||data.length<1000)break;offset+=1000;
   }
@@ -421,6 +421,16 @@ async function loadBilling(){
  const a=await rpc('pcd_v8_routes',{p_search:search,p_date:date,p_limit:50,p_offset:billingPage*50});
  billingTotal=a.total||0;const data=a.rows||[];$('billing-total').textContent=billingTotal;
  const notes=await billingInvoices(data.map(r=>r.plan_number));
+ const invoiceValues=new Map(),invoiceKeys=new Map();
+ for(const n of notes){
+  const plan=String(n.plan_number||'');
+  if(!invoiceKeys.has(plan))invoiceKeys.set(plan,new Set());
+  const key=String(n.customer_code||'')+'|'+String(n.invoice_number||'');
+  if(invoiceKeys.get(plan).has(key))continue;
+  invoiceKeys.get(plan).add(key);
+  const value=n.invoice_value==null?null:Number(n.invoice_value);
+  if(value!==null&&Number.isFinite(value)){const previous=invoiceValues.get(plan)||{sum:0,count:0};previous.sum+=value;previous.count++;invoiceValues.set(plan,previous);}
+ }
  const invoiceCities=new Map();for(const n of notes){const k=String(n.plan_number||'');if(!invoiceCities.has(k))invoiceCities.set(k,new Set());if(n.city)invoiceCities.get(k).add(billingNorm(n.city));}
  const cities=[...new Set([...notes.map(n=>billingNorm(n.city)),...data.map(r=>billingNorm(r.city))].filter(Boolean))];
  const driverProfiles=await billingDriverProfiles(date||data[0]?.route_date||data[0]?.loading_on);
@@ -458,19 +468,19 @@ async function loadBilling(){
   const deliveries=group.reduce((sum,x)=>sum+(Number(x.delivery_count)||0),0);
   const advance=freight==null||toll==null?null:(freight+Number(comp.amount||0))*0.5+toll;
   const total=freight==null||toll==null?null:freight+toll+Number(comp.amount||0);
-  result.push([plan,billingBR(dateKey),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingKg(weight),deliveries,r.driver_name||'—',r.plate||'—',embarkedProfile||'Não identificado',billingMoney(freight),toll==null?'Cadastrar pedágio':billingMoney(toll),billingMoney(comp.amount),billingMoney(advance),billingMoney(total),billingMoney(revenue),revenue==null?'—':billingMoney(revenue*0.12)]);
+  result.push([plan,billingBR(dateKey),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingKg(weight),billingMoney(invoiceValues.get(plan)?.sum??null),deliveries,r.driver_name||'—',r.plate||'—',embarkedProfile||'Não identificado',billingMoney(freight),toll==null?'Cadastrar pedágio':billingMoney(toll),billingMoney(comp.amount),billingMoney(advance),billingMoney(total),billingMoney(revenue),revenue==null?'—':billingMoney(revenue*0.12)]);
   metadata.push({id,freight,toll,plan,city:decisive?.routeCity||'',details,contractedProfile,embarkedProfile});
  }
- $('billing-table').innerHTML=table(['Plano','Data rota','Qtd. cidades','Cidade determinante','Faixa','Peso','Qtd. entregas','Motorista','Placa','Perfil embarcado','Frete a pagar','Pedágio','Complemento','Total adiantamento','Total a pagar','Receita bruta','ICMS 12%'],result);
+ $('billing-table').innerHTML=table(['Plano','Data rota','Qtd. cidades','Cidade determinante','Faixa','Peso','Valor mercadoria','Qtd. entregas','Motorista','Placa','Perfil embarcado','Frete a pagar','Pedágio','Complemento','Total adiantamento','Total a pagar','Receita bruta','ICMS 12%'],result);
  $('billing-table').querySelectorAll('tbody tr').forEach((tr,i)=>{const meta=metadata[i],c=billingComplements.get(meta.id)||{amount:0,reason:''};
   const amount=document.createElement('input');amount.type='number';amount.min='0';amount.step='0.01';amount.className='billing-comp-input';amount.value=c.amount||'';amount.placeholder='0,00';amount.title='Complemento simulado; ainda não gravado no banco';
   const reason=document.createElement('select');reason.className='billing-reason-input';for(const [value,label] of [['','Selecione o motivo'],...billingReasonOptions.map(x=>[x,x])]){const option=document.createElement('option');option.value=value;option.textContent=label;reason.append(option);}reason.value=billingReasonOptions.includes(c.reason)?c.reason:'';reason.title='Motivo do complemento';reason.disabled=!(Number(c.amount)>0);
-  const update=()=>{const val=Number(amount.value);if(!Number.isFinite(val)||val<0){amount.setCustomValidity('Informe valor válido');return;}amount.setCustomValidity('');reason.disabled=val<=0;if(val<=0)reason.value='';reason.required=val>0;reason.classList.toggle('billing-reason-required',val>0&&!reason.value);billingComplements.set(meta.id,{amount:val,reason:reason.value.trim()});tr.children[13].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney((meta.freight+val)*0.5+meta.toll);tr.children[14].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney(meta.freight+meta.toll+val);};
+  const update=()=>{const val=Number(amount.value);if(!Number.isFinite(val)||val<0){amount.setCustomValidity('Informe valor válido');return;}amount.setCustomValidity('');reason.disabled=val<=0;if(val<=0)reason.value='';reason.required=val>0;reason.classList.toggle('billing-reason-required',val>0&&!reason.value);billingComplements.set(meta.id,{amount:val,reason:reason.value.trim()});tr.children[14].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney((meta.freight+val)*0.5+meta.toll);tr.children[15].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney(meta.freight+meta.toll+val);};
   amount.addEventListener('input',update);reason.addEventListener('change',update);
-  tr.children[12].textContent='';const compInline=document.createElement('div');compInline.className='billing-comp-inline';compInline.append(amount,reason);tr.children[12].append(compInline);
+  tr.children[13].textContent='';const compInline=document.createElement('div');compInline.className='billing-comp-inline';compInline.append(amount,reason);tr.children[13].append(compInline);
   if(meta.city){const cell=tr.children[3];cell.textContent='';const cityButton=document.createElement('button');cityButton.type='button';cityButton.className='billing-city-link';cityButton.textContent=meta.city;cityButton.title='Consultar cidades, distâncias e faixas do plano';cityButton.onclick=()=>billingCityDetails(meta.plan,meta.details);cell.append(cityButton);}
-  if(meta.toll==null&&meta.city){const td=tr.children[11];td.textContent='';const btn=document.createElement('button');btn.type='button';btn.className='billing-register-toll';btn.textContent='+ Cadastrar pedágio';btn.onclick=()=>billingOpenToll(meta.city,meta.plan);td.append(btn);}
-  const profileCell=tr.children[9];profileCell.title='Perfil contratado: '+meta.contractedProfile+' · Perfil embarcado: '+(meta.embarkedProfile||'não identificado');
+  if(meta.toll==null&&meta.city){const td=tr.children[12];td.textContent='';const btn=document.createElement('button');btn.type='button';btn.className='billing-register-toll';btn.textContent='+ Cadastrar pedágio';btn.onclick=()=>billingOpenToll(meta.city,meta.plan);td.append(btn);}
+  const profileCell=tr.children[10];profileCell.title='Perfil contratado: '+meta.contractedProfile+' · Perfil embarcado: '+(meta.embarkedProfile||'não identificado');
 
  });
  $('billing-page').textContent=`${billingTotal} registros operacionais · página ${billingPage+1}`;
