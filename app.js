@@ -385,6 +385,20 @@ function billingNorm(v){return String(v||'').normalize('NFD').replace(/[\u0300-\
 function billingBR(v){if(!v)return '—';const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1]}`:String(v);}
 function billingDateISO(v){const x=String(v||'').trim();if(!x)return null;const m=x.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);if(!m)throw Error('Informe a data no formato DD/MM/AAAA.');const iso=`${m[3]}-${m[2]}-${m[1]}`;const d=new Date(iso+'T12:00:00Z');if(isNaN(d)||d.getUTCDate()!==Number(m[1])||d.getUTCMonth()+1!==Number(m[2]))throw Error('Data inválida.');return iso;}
 const billingComplements=new Map();
+function billingTollMultiplier(profile){const x=billingNorm(profile).replace(/[^A-Z0-9]/g,'');return x==='34'||x==='3/4'.replace(/[^A-Z0-9]/g,'')||x==='TRESQUARTOS'?2:1;}
+function billingOpenToll(city,plan){
+ $('billing-toll-city').value=city;$('billing-toll-plan').textContent='Plano '+plan+' · cidade de referência '+city;
+ $('billing-toll-amount').value='';$('billing-toll-modal').classList.remove('hidden');$('billing-toll-amount').focus();
+}
+$('billing-toll-cancel').onclick=()=>$('billing-toll-modal').classList.add('hidden');
+$('billing-toll-save').onclick=async()=>{
+ const city=$('billing-toll-city').value;const raw=$('billing-toll-amount').value.trim().replace(',','.');const amount=Number(raw);
+ if(!raw||!Number.isFinite(amount)||amount<0){$('billing-toll-error').textContent='Informe um valor válido (zero somente quando realmente isento).';return;}
+ const btn=$('billing-toll-save');btn.disabled=true;$('billing-toll-error').textContent='';
+ try{await rpc('pcd_billing_register_toll',{p_city:city,p_amount:amount});$('billing-toll-modal').classList.add('hidden');await loadBilling();}
+ catch(e){$('billing-toll-error').textContent=e.message;}
+ finally{btn.disabled=false;}
+};
 async function billingInvoices(plans){
  const rows=[];const unique=[...new Set(plans.map(String).filter(Boolean))];
  // Consulta por plano, não por cidade da rota. A paginação evita truncar as notas.
@@ -420,21 +434,23 @@ async function loadBilling(){
   const dateKey=r.route_date||r.loading_on||'';
   const override=decisive?exceptions.filter(x=>billingNorm(x.vehicle_profile)===prof&&Number(x.band)===Number(decisive.band)&&(!dateKey||x.effective_from<=dateKey)&&(!x.effective_until||x.effective_until>=dateKey)).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)))[0]:null;
   const cityTolls=decisive?tollRates.filter(x=>billingNorm(x.city)===billingNorm(decisive.routeCity)):[];
-  const toll=cityTolls.length?Number(cityTolls[0].amount):null;
+  const toll=cityTolls.length?Number(cityTolls[0].amount)*billingTollMultiplier(prof):null;
   const freight=override?Number(override.amount):decisive?Number(decisive.freight_payable):null;
   const revenue=decisive?.revenue_reference==null?null:Number(decisive.revenue_reference);
   const id=String(r.id||plan+'|'+dateKey),comp=billingComplements.get(id)||{amount:0,reason:''};
   const note=!noteCities.length?'Sem notas vinculadas — cidade operacional':matched.length!==cityList.length?'Cidade/perfil sem tabela':!decisive?'Cidade/perfil sem tabela':cityTolls.length>1&&new Set(cityTolls.map(x=>Number(x.amount))).size>1?'Pedágios divergentes':!cityTolls.length?'Pedágio sem referência':override?'Exceção fornecedor':'Tabela padrão';
-  result.push([plan,billingBR(dateKey),r.driver_name||'—',prof,cityList.join(' · '),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingMoney(freight),billingMoney(revenue),billingMoney(toll),billingMoney(comp.amount),comp.reason||'—',freight==null||toll==null?'—':billingMoney(freight+toll+comp.amount),note]);
-  metadata.push({id,freight,toll});
+  result.push([plan,billingBR(dateKey),r.driver_name||'—',prof,cityList.join(' · '),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingMoney(freight),toll==null?'Cadastrar pedágio':billingMoney(toll),billingMoney(comp.amount),comp.reason||'—',freight==null||toll==null?'Pendente':billingMoney(freight+toll+comp.amount),billingMoney(revenue),note]);
+  metadata.push({id,freight,toll,plan,city:decisive?.routeCity||''});
  }
- $('billing-table').innerHTML=table(['Plano','Data','Motorista','Perfil','Cidades','Qtd. cidades','Cidade determinante','Faixa','Frete a pagar','Receita frete','Pedágio ref.','Complemento','Motivo complemento','Total a pagar','Conferência'],result);
+ $('billing-table').innerHTML=table(['Plano','Data','Motorista','Perfil','Cidades','Qtd. cidades','Cidade determinante','Faixa','Frete a pagar','Pedágio','Complemento','Motivo complemento','Total a pagar','Receita bruta (ref.)','Conferência'],result);
  $('billing-table').querySelectorAll('tbody tr').forEach((tr,i)=>{const meta=metadata[i],c=billingComplements.get(meta.id)||{amount:0,reason:''};
   const amount=document.createElement('input');amount.type='number';amount.min='0';amount.step='0.01';amount.className='billing-comp-input';amount.value=c.amount||'';amount.placeholder='0,00';amount.title='Complemento simulado, ainda não gravado';
   const reason=document.createElement('input');reason.type='text';reason.className='billing-reason-input';reason.value=c.reason||'';reason.placeholder='Justificativa';reason.title='Motivo do complemento';
-  const update=()=>{const val=Number(amount.value);if(!Number.isFinite(val)||val<0){amount.setCustomValidity('Informe valor válido');return;}amount.setCustomValidity('');billingComplements.set(meta.id,{amount:val,reason:reason.value.trim()});tr.children[13].textContent=meta.freight==null||meta.toll==null?'—':billingMoney(meta.freight+meta.toll+val);};
+  const update=()=>{const val=Number(amount.value);if(!Number.isFinite(val)||val<0){amount.setCustomValidity('Informe valor válido');return;}amount.setCustomValidity('');billingComplements.set(meta.id,{amount:val,reason:reason.value.trim()});tr.children[12].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney(meta.freight+meta.toll+val);};
   amount.addEventListener('input',update);reason.addEventListener('input',update);
-  tr.children[11].textContent='';tr.children[11].append(amount);tr.children[12].textContent='';tr.children[12].append(reason);
+  tr.children[10].textContent='';tr.children[10].append(amount);tr.children[11].textContent='';tr.children[11].append(reason);
+  if(meta.toll==null&&meta.city){const td=tr.children[9];td.textContent='';const btn=document.createElement('button');btn.type='button';btn.className='billing-register-toll';btn.textContent='Cadastrar pedágio';btn.onclick=()=>billingOpenToll(meta.city,meta.plan);td.append(btn);}
+
  });
  $('billing-page').textContent=`${billingTotal} registros operacionais · página ${billingPage+1}`;
  $('billing-prev').disabled=billingPage===0;$('billing-next').disabled=(billingPage+1)*50>=billingTotal;

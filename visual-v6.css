@@ -76,3 +76,10 @@
 
 /* Faturamento V1.1: campos compactos de negociação */
 .billing-comp-input{width:94px;min-width:94px;padding:7px;font-size:12px}.billing-reason-input{width:160px;min-width:160px;padding:7px;font-size:12px}
+
+/* Faturamento V1.2 */
+.billing-register-toll{border:1px solid #d8a64c;background:#fff7e6;color:#805100;padding:6px 9px;border-radius:7px;font-size:11px;white-space:nowrap;cursor:pointer}
+.billing-toll-modal{position:fixed;inset:0;background:rgba(3,21,42,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px}
+.billing-toll-modal.hidden{display:none}
+.billing-toll-dialog{background:white;width:min(460px,100%);border-radius:12px;padding:22px;box-shadow:0 18px 50px #001e3640;display:grid;gap:10px}
+.billing-toll-dialog h2{font-size:17px;margin:0;color:#082d52}.billing-toll-dialog p{margin:0}.billing-toll-dialog label{font-size:12px;color:#32536d}.billing-toll-dialog input{width:100%}.billing-toll-hint{font-size:12px;color:#5d7488}.billing-toll-error{color:#b42318;font-size:12px;min-height:16px}.billing-toll-dialog .row{justify-content:flex-end}
