@@ -558,10 +558,50 @@ function payOpen(mode){paymentMode=mode;const modal=$('payment-modal');modal.cla
 function payRender(){const driver=$('payment-driver').value,rows=paymentCandidates.filter(r=>r.driver===driver);const root=$('payment-rows');root.replaceChildren();const t=document.createElement('table');t.className='payment-table';t.innerHTML='<thead><tr><th>Selecionar</th><th>Plano</th><th>Data rota</th><th>Vencimento</th><th>Total</th><th>Adiantamento pago</th><th>Saldo</th><th>Valor a pagar (R$)</th></tr></thead>';const body=document.createElement('tbody');let eligible=0;for(const r of rows){const st=payRowState(r);if(st.locked||st.balance==null||st.balance<=0)continue;eligible++;const tr=document.createElement('tr');const check=document.createElement('input');check.type='checkbox';check.className='pay-check';check.dataset.id=payKey(r);const amount=document.createElement('input');amount.type='number';amount.min='0';amount.step='0.01';amount.className='pay-amount';amount.dataset.id=payKey(r);const suggestion=paymentMode==='ADVANCE'?Math.max(0,Math.min(st.balance,Math.round((Number(r.advance||0)-st.paid)*100)/100)):st.balance;amount.value=suggestion.toFixed(2);amount.disabled=true;check.onchange=()=>{amount.disabled=!check.checked;payTotal();};amount.oninput=payTotal;for(const val of [check,r.plan,billingBR(r.date),billingBR(payDueDate(r.date)),payCurrency(st.due),payCurrency(st.paid),payCurrency(st.balance),amount]){const td=document.createElement('td');if(val instanceof HTMLElement)td.append(val);else td.textContent=val;tr.append(td);}body.append(tr);}t.append(body);root.append(t);if(!eligible){const p=document.createElement('p');p.className='muted';p.textContent='Nenhuma rota em aberto para este motorista e filtros.';root.append(p);}payTotal();}
 function payTotal(){let total=0;for(const el of document.querySelectorAll('#payment-rows .pay-check:checked')){const amount=document.querySelector(`#payment-rows .pay-amount[data-id="${el.dataset.id}"]`);total+=Number(amount?.value||0);} $('payment-total').textContent='Total selecionado: '+payCurrency(total);}
 $('pay-advance-open').onclick=()=>payOpen('ADVANCE');$('pay-settle-open').onclick=()=>payOpen('SETTLEMENT');$('payment-close').onclick=()=>$('payment-modal').classList.add('hidden');$('payment-driver').onchange=payRender;
-$('payment-print').onclick=()=>{
+// Carregamento resiliente das bibliotecas de PDF: CDN principal + espelhos.
+let paymentPdfLoading=null;
+function paymentPdfScript(url){
+ return new Promise((resolve,reject)=>{
+  const script=document.createElement('script');
+  script.src=url;script.async=true;
+  script.onload=()=>resolve();
+  script.onerror=()=>{script.remove();reject(new Error('Falha ao carregar '+url));};
+  document.head.appendChild(script);
+ });
+}
+async function paymentPdfReady(){
+ if(window.jspdf?.jsPDF && typeof window.jspdf.jsPDF.API.autoTable==='function')return true;
+ if(paymentPdfLoading)return paymentPdfLoading;
+ paymentPdfLoading=(async()=>{
+  const libraries=[
+   {ready:()=>!!window.jspdf?.jsPDF,urls:[
+    'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js',
+    'https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js']},
+   {ready:()=>!!window.jspdf?.jsPDF && typeof window.jspdf.jsPDF.API.autoTable==='function',urls:[
+    'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js',
+    'https://unpkg.com/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js']}
+  ];
+  for(const lib of libraries){
+   if(lib.ready())continue;
+   for(const url of lib.urls){
+    try{await paymentPdfScript(url);if(lib.ready())break;}catch(e){console.warn('[INNOVA PDF]',e.message);}
+   }
+   if(!lib.ready())return false;
+  }
+  return true;
+ })();
+ try{return await paymentPdfLoading;}finally{paymentPdfLoading=null;}
+}
+$('payment-print').onclick=async()=>{
  const error=$('payment-error');error.textContent='';
+ const printBtn=$('payment-print');printBtn.disabled=true;
+ const originalLabel=printBtn.textContent;printBtn.textContent='Preparando PDF...';
+ let ready=false;
+ try{ready=await paymentPdfReady();}finally{printBtn.disabled=false;printBtn.textContent=originalLabel;}
+ if(!ready){error.textContent='Não foi possível carregar as bibliotecas de PDF. Verifique a conexão ou o bloqueio de CDN e tente novamente.';return;}
  const api=window.jspdf;
- if(!api?.jsPDF){error.textContent='Biblioteca PDF indisponível. Verifique a conexão e recarregue a página.';return;}
  const selected=[...document.querySelectorAll('#payment-rows .pay-check:checked')];
  if(!selected.length){error.textContent='Selecione ao menos uma rota para gerar o extrato.';return;}
  const driver=$('payment-driver').value;
