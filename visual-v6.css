@@ -59,3 +59,6 @@
 .badge.oc-closed{background:#fde7e7!important;color:#a62b2b!important;border:1px solid #f3b3b3}
 .badge.oc-draft{background:#fff3d4!important;color:#8c5b05!important;border:1px solid #f4d48a}
 .badge.oc-cancelled{background:#e9edf3!important;color:#516174!important;border:1px solid #cbd4e1}
+
+/* Central Gmail V2 */
+.gmail-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px}.gmail-metrics>div{background:#f4f7fb;border:1px solid #e4eaf2;border-radius:9px;padding:13px}.gmail-metrics small{display:block;color:#647a90;font-size:12px}.gmail-metrics strong{font-size:23px;font-weight:600;display:block;margin-top:5px;color:#002f6c}.gmail-central table{margin-top:12px}@media(max-width:700px){.gmail-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}

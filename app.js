@@ -325,3 +325,41 @@ $('reason-refresh').onclick=()=>loadReasons().catch(e=>message(e.message,true));
 $('reason-search').oninput=()=>loadReasons().catch(e=>message(e.message,true));
 $('reason-status').onchange=()=>loadReasons().catch(e=>message(e.message,true));
 $('reason-add').onclick=()=>editReason(null);
+
+
+// Central Gmail: somente a sessao Supabase e enviada ao gateway.
+// O secret de execucao nunca sai do servidor.
+let gmailPreviewReady=false,gmailBusy=false;
+async function gmailAdmin(action){
+ const {data:{session},error}=await db.auth.getSession();
+ if(error||!session?.access_token)throw Error('Sessão expirada. Entre novamente.');
+ const response=await fetch(`${cfg.supabaseUrl}/functions/v1/pcd-gmail-admin`,{
+  method:'POST',headers:{'Authorization':`Bearer ${session.access_token}`,'apikey':cfg.supabasePublishableKey,'Content-Type':'application/json'},
+  body:JSON.stringify({action})
+ });
+ const payload=await response.json().catch(()=>({}));
+ if(!response.ok)throw Error(payload.error||`Erro HTTP ${response.status}`);
+ return payload;
+}
+function gmailBusySet(v){gmailBusy=v;for(const id of ['gmail-simulate','gmail-history'])$(id).disabled=v;$('gmail-apply').disabled=v||!gmailPreviewReady;}
+function gmailStatus(t){$('gmail-operation-status').textContent=t;}
+function gmailRenderPreview(r){
+ $('gmail-new').textContent=r.new_rows??'—';$('gmail-existing').textContent=r.existing_rows??'—';$('gmail-files').textContent=r.files_matched??'—';$('gmail-issues').textContent=r.issues?.length??'—';
+ const rows=(r.files||[]).map(x=>[x.filename,x.rows]);
+ $('gmail-operation-results').innerHTML=table(['Anexo','Notas'],rows);
+ if(r.issues?.length){const p=document.createElement('p');p.className='note';p.textContent='Inconsistências: '+r.issues.join(' | ');$('gmail-operation-results').prepend(p);}
+ gmailPreviewReady=Boolean(r.mode==='SIMULACAO_SEM_GRAVACAO'&&!r.issues?.length&&r.files_matched>0);
+ gmailStatus(`Simulação: ${r.new_rows??0} novas, ${r.existing_rows??0} existentes, ${r.duplicate_rows_in_files??0} repetidas. ${gmailPreviewReady?'Pronto para confirmar.':'Importação bloqueada.'}`);
+}
+$('gmail-simulate').onclick=async()=>{try{gmailBusySet(true);gmailPreviewReady=false;gmailStatus('Consultando Gmail e comparando notas...');const r=await gmailAdmin('SIMULAR');gmailRenderPreview(r);}catch(e){gmailStatus('Erro: '+e.message);message(e.message,true);}finally{gmailBusySet(false);}};
+$('gmail-apply').onclick=async()=>{
+ if(!gmailPreviewReady||gmailBusy)return;
+ if(!confirm('IMPORTAÇÃO REAL: inserir notas novas e atualizar dados fiscais das existentes? Confirme que possui backup e não há outra importação em andamento.'))return;
+ try{gmailBusySet(true);gmailPreviewReady=false;gmailStatus('Importando notas... Não feche a tela até receber o resultado.');
+  const r=await gmailAdmin('APLICAR');
+  $('gmail-operation-results').innerHTML=table(['Indicador','Quantidade'],[['Arquivos processados',r.files_processed??0],['Arquivos ignorados',r.files_skipped??0],['Notas inseridas',r.inserted??0],['Notas atualizadas',r.updated??0],['Sem alteração',r.unchanged??0],['Erros',(r.errors||[]).join('; ')||'Nenhum']]);
+  gmailStatus(r.errors?.length?'Importação parcialmente concluída. Confira histórico e não repita sem analisar.':'Importação concluída. Consulte o histórico.');
+  await refreshHealth();
+ }catch(e){gmailStatus('Erro: '+e.message+' — confira histórico antes de repetir.');message(e.message,true);}finally{gmailBusySet(false);}
+};
+$('gmail-history').onclick=async()=>{try{gmailBusySet(true);gmailStatus('Consultando histórico...');const r=await gmailAdmin('HISTORICO');$('gmail-operation-results').innerHTML=table(['Importado em','Arquivo','Linhas','Inseridas','Atualizadas','Sem alteração'],(r.items||[]).map(x=>[new Date(x.imported_at).toLocaleString('pt-BR'),x.filename,x.row_count,x.inserted_count,x.updated_count,x.unchanged_count]));gmailStatus(`${r.items?.length||0} anexo(s) no histórico. Nenhum dado foi alterado.`);}catch(e){gmailStatus('Erro: '+e.message);message(e.message,true);}finally{gmailBusySet(false);}};
