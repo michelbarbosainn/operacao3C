@@ -44,7 +44,7 @@ async function loadAvailability(){
 const availabilitySort={key:'routes_count',dir:-1};$('availability-search').addEventListener('input',()=>loadAvailability().catch(e=>message(e.message,true)));$('refresh-availability').onclick=loadAvailability;$('availability-date').onchange=async()=>{await loadAvailability();await refreshMetrics();};$('availability-category').onchange=loadAvailability;$('availability-profile').onchange=loadAvailability;$('availability-status').onchange=loadAvailability;
 async function loadRoutes(which){const search=$(which==='sac'?'sac-search':'route-search').value.trim(),date=$(which==='sac'?'sac-date':'route-date').value||null;const a=await rpc('pcd_v8_routes',{p_search:search,p_date:date,p_limit:50,p_offset:pages[which]*50});totals[which]=a.total;const data=a.rows||[];const headers=['Plano','Complemento','Solicitação','Data rota','Cidade','Destino','Perfil','Peso','Entregas','Valor NF','Motorista','Placa','Status rota','GreenMile','Tipo','Ação'];const target=$(which==='sac'?'sac-table':'route-table');target.innerHTML=table(headers,data.map(r=>[r.plan_number,r.complement,r.request_date,r.route_date,r.city,r.destination,r.vehicle_profile,r.gross_weight,r.delivery_count,r.merchandise_value,r.driver_name,r.plate,r.route_status,r.gm_status,r.is_active?r.duplicate_kind:'INATIVA','']));target.querySelectorAll('tbody tr').forEach((tr,i)=>{const r=data[i];tr.children[9].textContent=r.merchandise_value==null?'—':Number(r.merchandise_value).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});const count=Number(r.delivery_count)||0;tr.children[8].innerHTML='';const badge=document.createElement('span');badge.className='complexity '+(count===1?'low':count<=10?'mid':'high');badge.textContent=count+' '+(count===1?'●':count<=10?'◆':'▲');badge.title=count===1?'Entrega única':count<=10?'Complexidade intermediária':'Alta complexidade';tr.children[8].append(badge);if(which==='sac'){const plan=document.createElement('button');plan.className='plan-link';plan.textContent=r.plan_number;plan.onclick=()=>openPlanInvoices(r);tr.children[0].textContent='';tr.children[0].append(plan);}const cell=tr.lastElementChild,b=document.createElement('button');b.className='small';b.textContent=which==='sac'?'Atualizar SAC':'Programar';b.disabled=!data[i].is_active;b.onclick=()=>which==='sac'?openSAC(data[i]):openAssign(data[i]);cell.append(b);if(which==='routes'){const driverCell=tr.children[10];const edit=document.createElement('button');edit.className='driver-inline';edit.textContent=data[i].driver_name||'Selecionar motorista';edit.title='Clique para editar motorista na própria tabela';edit.onclick=()=>inlineAssign(data[i],driverCell);driverCell.textContent='';driverCell.append(edit);}});$(which==='sac'?'sac-page':'route-page').textContent=`${a.total} rotas · página ${pages[which]+1}`;$(which==='sac'?'sac-prev':'route-prev').disabled=pages[which]===0;$(which==='sac'?'sac-next':'route-next').disabled=(pages[which]+1)*50>=a.total;}
 for(const which of ['routes','sac']){const prefix=which==='sac'?'sac':'route';$(prefix+'-filter').onclick=()=>{pages[which]=0;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-prev').onclick=()=>{pages[which]--;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-next').onclick=()=>{pages[which]++;loadRoutes(which).catch(e=>message(e.message,true));};$('refresh-'+which).onclick=()=>loadRoutes(which).catch(e=>message(e.message,true));}
-function modal(title,summary,body,fn){$('modal-save').textContent='Salvar';$('modal-save').disabled=false;$('modal-title').textContent=title;$('modal-summary').textContent=summary;$('modal-body').innerHTML=body;modalSave=fn;$('modalbg').classList.remove('hidden');}
+function modal(title,summary,body,fn){$('modal-save').classList.remove('hidden');$('modal-save').textContent='Salvar';$('modal-save').disabled=false;$('modal-title').textContent=title;$('modal-summary').textContent=summary;$('modal-body').innerHTML=body;modalSave=fn;$('modalbg').classList.remove('hidden');}
 $('modal-close').onclick=()=>{$('modalbg').classList.add('hidden');};$('modal-save').onclick=async()=>{try{$('modal-save').disabled=true;await modalSave();$('modalbg').classList.add('hidden');await refreshMetrics();await loadRoutes(tab==='sac'?'sac':'routes');message('Alteração salva com sucesso.');}catch(e){message(e.message,true);}finally{$('modal-save').disabled=false;}};
 async function openAssign(r){const all=await rpc('pcd_v8_drivers',{p_date:r.route_date||r.loading_on});const eligible=all.filter(d=>d.base_status!=='INATIVO'&&norm(d.profile)===norm(r.vehicle_profile)&&(d.day_status==='DISPONIVEL'||(d.day_status==='PROGRAMADO'&&Number(d.routes_count)>0)));const options=eligible.map(d=>`<option value="${d.id}">${esc(d.name)} · ${esc(d.plate)} · ${esc(d.day_status)}${Number(d.routes_count)?' ('+d.routes_count+' rota(s))':''}</option>`).join('');modal('Escalar motorista',`Plano ${r.plan_number} · ${r.route_date||r.loading_on} · ${r.city} · ${r.vehicle_profile}`,`<label>Motorista disponível ou já programado</label><select id="pick-driver"><option value="">Selecione...</option>${options}</select><p class="muted" id="pick-plate">A placa será preenchida automaticamente.</p><p class="note">Segunda rota na mesma data exige confirmação. Motoristas INDISPONÍVEIS e INATIVOS não aparecem.</p>`,async()=>{const id=Number($('pick-driver').value);if(!id)throw Error('Selecione o motorista.');let result=await rpc('pcd_v8_assign',{p_route_id:r.id,p_driver_id:id,p_confirm_second:false});if(result.requires_confirmation){if(!confirm(`Motorista já possui ${result.existing_routes} rota(s) em ${r.route_date||r.loading_on}. Deseja confirmar outra escala?`))throw Error('Escala adicional cancelada.');result=await rpc('pcd_v8_assign',{p_route_id:r.id,p_driver_id:id,p_confirm_second:true});}return result;});$('pick-driver').onchange=()=>{const d=eligible.find(x=>x.id===Number($('pick-driver').value));$('pick-plate').textContent=d?`Placa automática: ${d.plate} · ${d.profile}`:'Selecione um motorista';};}
 function openSAC(r){modal('Acompanhamento SAC',`Plano ${r.plan_number} · ${r.route_date||r.loading_on} · Motorista: ${r.driver_name||'Não escalado'} · Placa: ${r.plate||'—'}`,`<div class="two"><div><label>Status da rota</label><select id="sac-route-status"><option>PROGRAMAR</option><option>EM ROTA</option><option>CONCLUÍDO</option><option>NÃO EMBARCOU</option></select></div><div><label>Status GreenMile</label><select id="sac-gm-status"><option value="">Não informado</option><option>ROTA ATRIBUIDA</option><option>ENTREGANDO</option><option>FINALIZAÇÃO</option><option>GM OK</option><option>NÃO USOU GM</option></select></div></div><label style="margin-top:14px">Data da rota (remarcação pelo SAC)</label><input id="sac-route-date" type="date"/><label style="margin-top:14px">Observações</label><textarea id="sac-notes" maxlength="4000"></textarea><p class="muted">Não é possível alterar motorista ou placa nesta tela.</p>`,async()=>{await rpc('pcd_v8_sac',{p_route_id:r.id,p_status:$('sac-route-status').value,p_gm:$('sac-gm-status').value||null,p_notes:$('sac-notes').value,p_route_date:$('sac-route-date').value});});$('sac-route-date').value=r.route_date||r.loading_on;$('sac-route-status').value=r.route_status||'PROGRAMAR';$('sac-gm-status').value=r.gm_status||'';$('sac-notes').value=r.sac_notes||'';}
@@ -95,8 +95,8 @@ async function openPlanInvoices(r){
   let html=`<div class="occ-stats"><span><b>${invoices.length}</b> NFs</span><span><b>${groups.size}</b> destinatários</span><span><b>${existing.length}</b> ocorrências registradas</span></div>`;
   if(!invoices.length)html+='<p class="note">Nenhuma nota vinculada ao plano. Importe as NFs e confira Ordem de Frete = PLANO.</p>';
   for(const [key,notes] of groups){
-   const [code,name]=key.split('|');const city=notes[0].city||'—';
-   html+=`<details class="occ-customer"><summary><strong>${esc(name||'Cliente não informado')}</strong><small>${esc(code)} · ${esc(city)} · ${notes.length} NF(s) · ${brWeight(notes.reduce((sum,x)=>sum+Number(x.gross_weight||0),0))}</small></summary><div class="scroll"><table class="occ-table"><thead><tr><th><input type="checkbox" class="occ-select-all" aria-label="Selecionar notas do destinatário"></th><th>NF</th><th>Cliente</th><th>Cidade</th><th>Peso</th><th>Valor</th></tr></thead><tbody>`;
+   const [code,name]=key.split('|');const city=notes[0].city||'—';const customerOcc=existing.filter(o=>String(o.customer_code)===code);const marker=customerOcc.length?(customerOcc.some(o=>o.status!=='ENCERRADA')?'🔴 ':'🟢 '):'';
+   html+=`<details class="occ-customer"><summary><strong>${marker}${esc(name||'Cliente não informado')}</strong><small>${esc(code)} · ${esc(city)} · ${notes.length} NF(s) · ${brWeight(notes.reduce((sum,x)=>sum+Number(x.gross_weight||0),0))}</small></summary><div class="scroll"><table class="occ-table"><thead><tr><th><input type="checkbox" class="occ-select-all" aria-label="Selecionar notas do destinatário"></th><th>NF</th><th>Cliente</th><th>Cidade</th><th>Peso</th><th>Valor</th></tr></thead><tbody>`;
    for(const nf of notes)html+=`<tr><td><input type="checkbox" class="occ-nf" data-id="${Number(nf.id)}" data-customer="${esc(code)}"></td><td>${esc(nf.invoice_number)}</td><td>${esc(nf.customer_name)}</td><td>${esc(nf.city)}</td><td>${brWeight(nf.gross_weight)}</td><td>${brMoney(nf.invoice_value)}</td></tr>`;
    html+='</tbody></table></div></details>';
   }
@@ -105,7 +105,10 @@ async function openPlanInvoices(r){
   }
   html+='<h3 class="occ-history-title">Histórico do plano</h3>';
   if(!existing.length)html+='<p class="muted">Nenhuma ocorrência registrada neste plano.</p>';
-  for(const o of existing){const nfs=(o.invoices||[]).map(x=>x.number).join(', ');html+=`<div class="occ-history"><b>OC-${new Date(o.created_at).getFullYear()}-${String(o.id).padStart(6,'0')}</b> · ${esc(o.status)}<div>${esc(o.customer_name)} · ${esc(o.city)} · ${esc(o.reason)}</div><small>NF(s): ${esc(nfs)} · ${new Date(o.created_at).toLocaleString('pt-BR')}</small><p>${esc(o.description)}</p>${o.status==='RASCUNHO'?`<button class="small occ-test-send" data-occ-id="${Number(o.id)}">Solicitar envio de teste</button>`:''}</div>`;}
+  for(const o of existing){
+   const nfs=(o.invoices||[]).map(x=>x.number).join(', ');
+   html+=`<div class="occ-history"><b>OC-${new Date(o.created_at).getFullYear()}-${String(o.id).padStart(6,'0')}</b> · <span class="occ-status">${esc(o.status)}</span><div>${esc(o.customer_name)} · ${esc(o.city)} · ${esc(o.reason)}</div><small>NF(s): ${esc(nfs)} · ${new Date(o.created_at).toLocaleString('pt-BR')}</small><p>${esc(o.description)}</p><div class="occ-actions"><button class="small occ-manage" data-occ-id="${Number(o.id)}">Gerenciar / Anexos / Envio / Encerramento</button></div></div>`;
+  }
   modal('Notas fiscais e ocorrências',`Plano ${r.plan_number} · ${r.city||'—'} · ${r.driver_name||'Motorista não escalado'}`,html,async()=>{
    const marked=[...$('modal-body').querySelectorAll('.occ-nf:checked')];
    if(!marked.length)throw Error('Selecione ao menos uma NF.');
@@ -118,10 +121,62 @@ async function openPlanInvoices(r){
   $('modal-save').textContent='Registrar ocorrência (rascunho)';
   $('modal-save').disabled=!invoices.length;
   const body=$('modal-body');
-  body.querySelectorAll('.occ-test-send').forEach(b=>b.onclick=async()=>{try{if(!confirm('Solicitar envio de teste somente para michelbarbosa@innovasl.com.br?'))return;const a=await rpc('pcd_v91_queue_test_email',{p_occurrence_id:Number(b.dataset.occId)});message('Envio solicitado: '+a.status+'. A rotina Gmail realizará o envio e registrará o resultado.');await openPlanInvoices(r);}catch(e){message(e.message,true);}});
+  body.querySelectorAll('.occ-manage').forEach(b=>b.onclick=()=>manageOccurrence(Number(b.dataset.occId),r));
   const update=()=>{const n=body.querySelectorAll('.occ-nf:checked').length;const el=$('occ-selected');if(el)el.textContent=n+' NF(s)';};
   body.querySelectorAll('.occ-select-all').forEach(all=>all.onchange=()=>{all.closest('table').querySelectorAll('.occ-nf').forEach(c=>c.checked=all.checked);update();});
   body.querySelectorAll('.occ-nf').forEach(c=>c.onchange=update);
+ }catch(e){message(e.message,true);}
+}
+async function manageOccurrence(occId,route){
+ try{
+  const [history,files]=await Promise.all([rpc('pcd_v92_history',{p_occurrence_id:occId}),rpc('pcd_v92_attachments_for_occurrence',{p_occurrence_id:occId})]);
+  const hasInitial=(history.emails||[]).some(x=>x.kind==='INICIAL');
+  const initialSent=(history.emails||[]).some(x=>x.kind==='INICIAL'&&x.status==='ENVIADO');
+  const rows=(history.emails||[]).map(x=>`<div class="occ-history">${esc(x.kind)} · <b>${esc(x.status)}</b> · ${new Date(x.requested_at).toLocaleString('pt-BR')}${x.error?`<p class="error">${esc(x.error)}</p>`:''}</div>`).join('');
+  const fileRows=files.map(f=>`<label class="occ-file"><input type="checkbox" class="occ-attach-select" value="${Number(f.id)}"> ${esc(f.name)} <small>(${Math.ceil(f.size/1024)} KB)</small></label>`).join('');
+  const html=`<div class="occ-v92"><div class="note">Homologação: envio exclusivo para <b>michelbarbosa@innovasl.com.br</b>. O envio é realizado por função segura do Supabase, sem Google Apps Script.</div>
+  <h3>Evidências e anexos</h3><input id="occ-upload" type="file" accept=".pdf,.jpg,.jpeg,.png" multiple><button class="small" id="occ-upload-btn">Adicionar anexos</button><p class="muted">Até 10 MB por arquivo; PDF, JPG ou PNG. Para nota parcial/comprovante de encerramento, envie PDF.</p><div class="occ-files">${fileRows||'<small>Nenhum anexo cadastrado</small>'}</div>
+  <h3>Envio de ocorrência</h3><label>Complemento (se houver)</label><textarea id="occ-complement" rows="2" placeholder="Informações adicionais para o e-mail complementar"></textarea>
+  <button id="occ-send-v92" class="small">${hasInitial?'Enviar e-mail complementar':'Enviar ocorrência inicial de teste'}</button><p class="muted">Selecione os anexos que devem acompanhar este envio. Novos anexos podem ser incluídos posteriormente.</p>
+  <h3>Histórico de envios</h3>${rows||'<p class="muted">Nenhum envio nesta versão.</p>'}
+  <h3>Encerramento</h3><label>Resultado final</label><select id="occ-close-result"><option value="">Selecione...</option><option>ENTREGUE</option><option>ENTREGUE PARCIAL</option><option>DEVOLUÇÃO TOTAL</option></select><label>Senha de autorização 3 Corações</label><input id="occ-close-code" placeholder="Obrigatória para parcial ou devolução"><label>Observação de encerramento</label><textarea id="occ-close-note" rows="2"></textarea><button id="occ-close-btn" class="small" ${history.status==='ENCERRADA'?'disabled':''}>Encerrar ocorrência</button>${history.closing_result?`<p class="note">Encerrada: ${esc(history.closing_result)}</p>`:''}</div>`;
+  modal('Gestão da ocorrência',`OC-${String(occId).padStart(6,'0')} · Plano ${route.plan_number}`,html,async()=>{});
+  $('modal-save').classList.add('hidden');
+  const selected=()=>[...document.querySelectorAll('.occ-attach-select:checked')].map(e=>Number(e.value));
+  $('occ-upload-btn').onclick=async()=>{
+   try{const arr=[...$('occ-upload').files];if(!arr.length)throw Error('Selecione arquivos.');
+    for(const f of arr){if(!['application/pdf','image/jpeg','image/png'].includes(f.type)||f.size>10485760||!f.size)throw Error('Arquivo inválido: '+f.name);
+     const {data:{user}}=await db.auth.getUser();const safe=f.name.replace(/[^a-zA-Z0-9._-]/g,'_');const path=`${user.id}/${occId}/${crypto.randomUUID()}-${safe}`;
+     const {error}=await db.storage.from('pcd-occurrences').upload(path,f,{contentType:f.type,upsert:false});if(error)throw error;
+     await rpc('pcd_v92_add_attachment',{p_occurrence_id:occId,p_path:path,p_name:f.name,p_mime:f.type,p_size:f.size});
+    }message('Anexos salvos.');await manageOccurrence(occId,route);
+   }catch(e){message('Falha no anexo: '+e.message,true);}
+  };
+  $('occ-send-v92').onclick=async()=>{
+   const btn=$('occ-send-v92');try{
+    if(hasInitial&&!initialSent)throw Error('O envio inicial ainda não foi confirmado. Consulte o histórico.');
+    if(!confirm('Enviar somente para michelbarbosa@innovasl.com.br?'))return;
+    btn.disabled=true;const kind=hasInitial?'COMPLEMENTO':'INICIAL';
+    const queued=await rpc('pcd_v92_queue_email',{p_occurrence_id:occId,p_kind:kind,p_note:$('occ-complement').value.trim(),p_attachment_ids:selected()});
+    message('Solicitação '+queued.id+' registrada. Enviando pelo Resend...');
+    const {data,error}=await db.functions.invoke('pcd-occurrence-send',{body:{queue_id:queued.id}});
+    if(error){
+     let detail=error.message;
+     try{if(error.context && typeof error.context.json==='function'){const payload=await error.context.json();detail=payload.error||payload.message||detail;}}catch{}
+     throw Error('Fila #'+queued.id+': '+detail+'. Consulte o histórico antes de tentar novamente.');
+    }
+    if(!data?.ok)throw Error('Fila #'+queued.id+': '+(data?.error||'Envio não confirmado'));
+    message('Solicitação #'+queued.id+' aceita pelo Resend (ID '+(data.provider_id||'não informado')+'). Confira a caixa de entrada.');
+    await manageOccurrence(occId,route);
+   }catch(e){message('Envio não confirmado: '+e.message,true);btn.disabled=false;}
+  };
+  $('occ-close-btn').onclick=async()=>{
+   try{const result=$('occ-close-result').value,code=$('occ-close-code').value.trim();if(!result)throw Error('Selecione o resultado.');
+    if(!confirm('Confirmar encerramento da ocorrência?'))return;
+    await rpc('pcd_v92_close_occurrence',{p_occurrence_id:occId,p_result:result,p_code:code,p_notes:$('occ-close-note').value.trim()});
+    message('Ocorrência encerrada.');await manageOccurrence(occId,route);
+   }catch(e){message(e.message,true);}
+  };
  }catch(e){message(e.message,true);}
 }
 function switchImport(kind){$('import-routes-area').classList.toggle('hidden',kind!=='routes');$('panel-invoices').classList.toggle('hidden',kind!=='invoices');$('switch-routes').classList.toggle('active',kind==='routes');$('switch-invoices').classList.toggle('active',kind==='invoices');}
