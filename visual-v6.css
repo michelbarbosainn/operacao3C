@@ -118,3 +118,17 @@
 
 /* Faturamento V2.0 - resumo de todas as rotas filtradas */
 .billing-stats{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(155px,1fr))!important;gap:9px!important;margin-bottom:12px}.billing-stats>div{min-width:0}.billing-stats>div strong{font-size:15px;white-space:nowrap}.billing-summary-warning{grid-column:1/-1;margin:2px 0 0;font-size:11px;color:#60738a}.billing-summary-margin{color:#145a84}
+
+/* Faturamento V2.0.2 — painel executivo compacto, cores semânticas */
+.billing-stats{display:grid!important;grid-template-columns:repeat(8,minmax(0,1fr))!important;gap:8px!important;margin-bottom:12px!important}
+.billing-stats>div{min-width:0;padding:10px 9px!important;border:1px solid #e0e8f1!important;border-radius:9px!important;background:#f8fafc!important;box-shadow:none!important}
+.billing-stats>div small{font-size:10px!important;line-height:1.35!important;font-weight:400!important;color:#6b7e94!important;min-height:14px;margin-bottom:5px!important}
+.billing-stats>div strong{display:block;font-size:14px!important;line-height:1.25!important;font-weight:550!important;letter-spacing:-.25px;white-space:nowrap!important;font-variant-numeric:tabular-nums}
+.billing-stats .billing-summary-neutral strong{color:#123c68!important}
+.billing-stats .billing-summary-revenue strong{color:#16834a!important}
+.billing-stats .billing-summary-expense strong{color:#c24142!important}
+.billing-stats .billing-summary-deduction strong{color:#a56c0a!important}
+.billing-stats .billing-summary-result{border-bottom:2px solid #cbd9e8!important}
+.billing-stats .billing-summary-warning{grid-column:1/-1;padding:2px 0!important;border:0!important;background:transparent!important;margin:0!important}
+@media(max-width:1250px){.billing-stats{grid-template-columns:repeat(4,minmax(0,1fr))!important}}
+@media(max-width:640px){.billing-stats{grid-template-columns:repeat(2,minmax(0,1fr))!important}.billing-stats>div strong{font-size:13px!important}}

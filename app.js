@@ -482,8 +482,8 @@ function billingSummaryRender(rows){
  const fields=[
   ['Rotas','count','int'],['Cidades atendidas','cityCount','int'],['Entregas','deliveries','int'],['Peso transportado','weight','kg'],
   ['Valor mercadoria','goods','money'],['Frete a pagar','freight','money'],['Pedágios','toll','money'],['Complementos','comp','money'],
-  ['Total a pagar','total','money'],['Adiantamento previsto','advance','money'],['Receita bruta','revenue','money'],
-  ['ICMS','icms','money'],['Demais tributos','otherTaxes','money'],['Total impostos','totalTaxes','money'],
+  ['Total a pagar','total','money'],['Receita bruta','revenue','money'],
+  ['ICMS','icms','money'],
   ['Averbação','aver','money'],['Desp. administrativas','adminCost','money'],['Emissão CT-e','cteCost','money'],
   ['Margem estimada','margin','money'],['Margem estimada %','marginPct','pct']
  ];
@@ -498,7 +498,15 @@ function billingSummaryRender(rows){
  for(const [label,key,type] of fields){
   const card=document.createElement('div');const small=document.createElement('small');small.textContent=label;
   const strong=document.createElement('strong');strong.textContent=fmt(key,type);
-  if(key==='margin'||key==='marginPct')strong.classList.add('billing-summary-margin');
+  const expenseKeys=['freight','toll','comp','total','adminCost'];
+  const deductionKeys=['icms','aver','cteCost'];
+  if(expenseKeys.includes(key))card.classList.add('billing-summary-expense');
+  else if(deductionKeys.includes(key))card.classList.add('billing-summary-deduction');
+  else if(key==='revenue')card.classList.add('billing-summary-revenue');
+  else if(key==='margin'||key==='marginPct'){
+   const isNegative=sum('margin')<0;card.classList.add(isNegative?'billing-summary-expense':'billing-summary-revenue');
+   card.classList.add('billing-summary-result');
+  }else card.classList.add('billing-summary-neutral');
   card.append(small,strong);root.append(card);
  }
  const pending=rows.filter(r=>r.toll==null||r.freight==null||r.revenue==null||r.totalTaxes==null||r.aver==null||r.adminCost==null||r.cteCost==null).length;
