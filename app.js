@@ -385,6 +385,9 @@ function billingNorm(v){return String(v||'').normalize('NFD').replace(/[\u0300-\
 function billingBR(v){if(!v)return '—';const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1]}`:String(v);}
 function billingDateISO(v){const x=String(v||'').trim();if(!x)return null;const m=x.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);if(!m)throw Error('Informe a data no formato DD/MM/AAAA.');const iso=`${m[3]}-${m[2]}-${m[1]}`;const d=new Date(iso+'T12:00:00Z');if(isNaN(d)||d.getUTCDate()!==Number(m[1])||d.getUTCMonth()+1!==Number(m[2]))throw Error('Data inválida.');return iso;}
 const billingComplements=new Map();
+const billingNumber=n=>n==null||n===''?null:Number(n);
+const billingKg=n=>n==null||n===''?'—':Number(n).toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg';
+async function billingDriverProfiles(date){try{const list=await rpc('pcd_v8_drivers',{p_date:date||new Date().toISOString().slice(0,10)});return Array.isArray(list)?list:[];}catch(e){console.warn('Perfil embarcado não disponível:',e);return [];}}
 const billingReasonOptions=['DISTÂNCIA DA ROTA','COMPLEXIDADE DA ROTA','ESPERA','BONIFICAÇÃO'];
 function billingCityDetails(plan,items){const modal=$('billing-cities-modal'),body=$('billing-cities-body');$('billing-cities-plan').textContent='Plano '+plan;body.textContent='';for(const item of items){const tr=document.createElement('tr');for(const val of [item.city,item.distance==null?'—':Number(item.distance).toLocaleString('pt-BR')+' km',item.band==null?'Sem faixa':'Faixa '+item.band]){const td=document.createElement('td');td.textContent=val;tr.append(td);}body.append(tr);}modal.classList.remove('hidden');}
 $('billing-cities-close').onclick=()=>$('billing-cities-modal').classList.add('hidden');$('billing-cities-modal').addEventListener('click',e=>{if(e.target.id==='billing-cities-modal')e.currentTarget.classList.add('hidden');});
@@ -420,7 +423,9 @@ async function loadBilling(){
  const notes=await billingInvoices(data.map(r=>r.plan_number));
  const invoiceCities=new Map();for(const n of notes){const k=String(n.plan_number||'');if(!invoiceCities.has(k))invoiceCities.set(k,new Set());if(n.city)invoiceCities.get(k).add(billingNorm(n.city));}
  const cities=[...new Set([...notes.map(n=>billingNorm(n.city)),...data.map(r=>billingNorm(r.city))].filter(Boolean))];
- const profiles=[...new Set(data.map(r=>billingNorm(r.vehicle_profile)).filter(Boolean))];
+ const driverProfiles=await billingDriverProfiles(date||data[0]?.route_date||data[0]?.loading_on);
+ const driversByPlate=new Map(driverProfiles.filter(x=>x.plate).map(x=>[billingNorm(x.plate).replace(/[^A-Z0-9]/g,''),x]));
+ const driversByName=new Map(driverProfiles.filter(x=>x.name).map(x=>[billingNorm(x.name),x]));
  const cityRates=[],tollRates=[],exceptions=[];
  // Normalização em JS: evita perder cidades com diferenças de acentuação/capitalização.
  if(cities.length){for(let i=0;i<cities.length;i+=20){const part=cities.slice(i,i+20);
@@ -431,30 +436,41 @@ async function loadBilling(){
  $('billing-rates-status').textContent=cityRates.length?'Disponível':'Sem correspondência';$('billing-tolls-status').textContent=tollRates.length?'Disponível':'Sem correspondência';
  const grouped=new Map();for(const r of data){const key=String(r.plan_number)+'|'+String(r.route_date||r.loading_on||'')+'|'+String(r.vehicle_profile||'');if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(r);}
  const result=[],metadata=[];for(const group of grouped.values()){
-  const r=group[0],plan=String(r.plan_number),noteCities=[...(invoiceCities.get(plan)||[])],cityList=noteCities.length?noteCities:[...new Set(group.map(x=>billingNorm(x.city)).filter(Boolean))],prof=billingNorm(r.vehicle_profile);
-  const matched=cityList.flatMap(city=>cityRates.filter(x=>billingNorm(x.city)===city&&billingNorm(x.vehicle_profile)===prof).map(x=>({...x,routeCity:city})));
+  const r=group[0],plan=String(r.plan_number),noteCities=[...(invoiceCities.get(plan)||[])],cityList=noteCities.length?noteCities:[...new Set(group.map(x=>billingNorm(x.city)).filter(Boolean))];
+  const contractedProfile=billingNorm(r.vehicle_profile);
+  const driver=driversByPlate.get(billingNorm(r.plate).replace(/[^A-Z0-9]/g,''))||driversByName.get(billingNorm(r.driver_name));
+  const embarkedProfile=driver?.profile?billingNorm(driver.profile):null;
+  const prof=embarkedProfile||contractedProfile;
+  const matched=cityList.flatMap(city=>cityRates.filter(x=>billingNorm(x.city)===city&&billingNorm(x.vehicle_profile)===contractedProfile).map(x=>({...x,routeCity:city})));
+  const payRates=cityList.flatMap(city=>cityRates.filter(x=>billingNorm(x.city)===city&&billingNorm(x.vehicle_profile)===prof).map(x=>({...x,routeCity:city}))); 
   matched.sort((x,y)=>Number(y.band)-Number(x.band)||Number(y.distance_km||0)-Number(x.distance_km||0));const decisive=matched[0];
   const dateKey=r.route_date||r.loading_on||'';
+  const payableRate=decisive?payRates.filter(x=>Number(x.band)===Number(decisive.band)).sort((a,b)=>Number(b.distance_km||0)-Number(a.distance_km||0))[0]:null;
   const override=decisive?exceptions.filter(x=>billingNorm(x.vehicle_profile)===prof&&Number(x.band)===Number(decisive.band)&&(!dateKey||x.effective_from<=dateKey)&&(!x.effective_until||x.effective_until>=dateKey)).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)))[0]:null;
   const cityTolls=decisive?tollRates.filter(x=>billingNorm(x.city)===billingNorm(decisive.routeCity)):[];
   const toll=cityTolls.length?Number(cityTolls[0].amount)*billingTollMultiplier(prof):null;
-  const freight=override?Number(override.amount):decisive?Number(decisive.freight_payable):null;
+  const freight=override?Number(override.amount):payableRate?Number(payableRate.freight_payable):null;
   const revenue=decisive?.revenue_reference==null?null:Number(decisive.revenue_reference);
   const id=String(r.id||plan+'|'+dateKey),comp=billingComplements.get(id)||{amount:0,reason:''};
   const note=!noteCities.length?'Sem notas vinculadas — cidade operacional':matched.length!==cityList.length?'Cidade/perfil sem tabela':!decisive?'Cidade/perfil sem tabela':cityTolls.length>1&&new Set(cityTolls.map(x=>Number(x.amount))).size>1?'Pedágios divergentes':!cityTolls.length?'Pedágio sem referência':override?'Exceção fornecedor':'Tabela padrão';
   const details=cityList.map(city=>{const candidates=matched.filter(x=>x.routeCity===city).sort((a,b)=>Number(b.band)-Number(a.band)||Number(b.distance_km||0)-Number(a.distance_km||0));return {city,band:candidates[0]?.band??null,distance:candidates[0]?.distance_km??null};}).sort((a,b)=>Number(b.band||0)-Number(a.band||0)||Number(b.distance||0)-Number(a.distance||0));
-  result.push([plan,billingBR(dateKey),r.driver_name||'—',prof,cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingMoney(freight),toll==null?'Cadastrar pedágio':billingMoney(toll),billingMoney(comp.amount),comp.reason||'—',freight==null||toll==null?'Pendente':billingMoney(freight+toll+comp.amount),billingMoney(revenue),note]);
-  metadata.push({id,freight,toll,plan,city:decisive?.routeCity||'',details});
+  const weight=group.reduce((sum,x)=>sum+(Number(x.gross_weight)||0),0);
+  const deliveries=group.reduce((sum,x)=>sum+(Number(x.delivery_count)||0),0);
+  const advance=freight==null||toll==null?null:(freight+Number(comp.amount||0))*0.5+toll;
+  const total=freight==null||toll==null?null:freight+toll+Number(comp.amount||0);
+  result.push([plan,billingBR(dateKey),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingKg(weight),deliveries,r.driver_name||'—',r.plate||'—',embarkedProfile||'Não identificado',billingMoney(freight),toll==null?'Cadastrar pedágio':billingMoney(toll),billingMoney(comp.amount),billingMoney(advance),billingMoney(total),billingMoney(revenue),revenue==null?'—':billingMoney(revenue*0.12)]);
+  metadata.push({id,freight,toll,plan,city:decisive?.routeCity||'',details,contractedProfile,embarkedProfile});
  }
- $('billing-table').innerHTML=table(['Plano','Data','Motorista','Perfil','Qtd. cidades','Cidade determinante','Faixa','Frete a pagar','Pedágio','Complemento','Motivo complemento','Total a pagar','Receita bruta (ref.)','Conferência'],result);
+ $('billing-table').innerHTML=table(['Plano','Data rota','Qtd. cidades','Cidade determinante','Faixa','Peso','Qtd. entregas','Motorista','Placa','Perfil embarcado','Frete a pagar','Pedágio','Complemento','Total adiantamento','Total a pagar','Receita bruta','ICMS 12%'],result);
  $('billing-table').querySelectorAll('tbody tr').forEach((tr,i)=>{const meta=metadata[i],c=billingComplements.get(meta.id)||{amount:0,reason:''};
-  const amount=document.createElement('input');amount.type='number';amount.min='0';amount.step='0.01';amount.className='billing-comp-input';amount.value=c.amount||'';amount.placeholder='0,00';amount.title='Complemento simulado, ainda não gravado';
+  const amount=document.createElement('input');amount.type='number';amount.min='0';amount.step='0.01';amount.className='billing-comp-input';amount.value=c.amount||'';amount.placeholder='0,00';amount.title='Complemento simulado; ainda não gravado no banco';
   const reason=document.createElement('select');reason.className='billing-reason-input';for(const [value,label] of [['','Selecione o motivo'],...billingReasonOptions.map(x=>[x,x])]){const option=document.createElement('option');option.value=value;option.textContent=label;reason.append(option);}reason.value=billingReasonOptions.includes(c.reason)?c.reason:'';reason.title='Motivo do complemento';reason.disabled=!(Number(c.amount)>0);
-  const update=()=>{const val=Number(amount.value);if(!Number.isFinite(val)||val<0){amount.setCustomValidity('Informe valor válido');return;}amount.setCustomValidity('');reason.disabled=val<=0;if(val<=0)reason.value='';reason.required=val>0;reason.classList.toggle('billing-reason-required',val>0&&!reason.value);billingComplements.set(meta.id,{amount:val,reason:reason.value.trim()});tr.children[11].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney(meta.freight+meta.toll+val);};
+  const update=()=>{const val=Number(amount.value);if(!Number.isFinite(val)||val<0){amount.setCustomValidity('Informe valor válido');return;}amount.setCustomValidity('');reason.disabled=val<=0;if(val<=0)reason.value='';reason.required=val>0;reason.classList.toggle('billing-reason-required',val>0&&!reason.value);billingComplements.set(meta.id,{amount:val,reason:reason.value.trim()});tr.children[13].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney((meta.freight+val)*0.5+meta.toll);tr.children[14].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney(meta.freight+meta.toll+val);};
   amount.addEventListener('input',update);reason.addEventListener('change',update);
-  tr.children[9].textContent='';tr.children[9].append(amount);tr.children[10].textContent='';tr.children[10].append(reason);
-  if(meta.city){const cell=tr.children[5];cell.textContent='';const cityButton=document.createElement('button');cityButton.type='button';cityButton.className='billing-city-link';cityButton.textContent=meta.city;cityButton.title='Consultar cidades, distâncias e faixas do plano';cityButton.onclick=()=>billingCityDetails(meta.plan,meta.details);cell.append(cityButton);}
-  if(meta.toll==null&&meta.city){const td=tr.children[8];td.textContent='';const btn=document.createElement('button');btn.type='button';btn.className='billing-register-toll';btn.textContent='+ Cadastrar pedágio';btn.onclick=()=>billingOpenToll(meta.city,meta.plan);td.append(btn);}
+  tr.children[12].textContent='';tr.children[12].append(amount,reason);
+  if(meta.city){const cell=tr.children[3];cell.textContent='';const cityButton=document.createElement('button');cityButton.type='button';cityButton.className='billing-city-link';cityButton.textContent=meta.city;cityButton.title='Consultar cidades, distâncias e faixas do plano';cityButton.onclick=()=>billingCityDetails(meta.plan,meta.details);cell.append(cityButton);}
+  if(meta.toll==null&&meta.city){const td=tr.children[11];td.textContent='';const btn=document.createElement('button');btn.type='button';btn.className='billing-register-toll';btn.textContent='+ Cadastrar pedágio';btn.onclick=()=>billingOpenToll(meta.city,meta.plan);td.append(btn);}
+  const profileCell=tr.children[9];profileCell.title='Perfil contratado: '+meta.contractedProfile+' · Perfil embarcado: '+(meta.embarkedProfile||'não identificado');
 
  });
  $('billing-page').textContent=`${billingTotal} registros operacionais · página ${billingPage+1}`;
