@@ -48,3 +48,8 @@
 
 /* V9.4: painel compacto de ocorrências */
 .occ-dashboard{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:18px 0}.occ-mini{background:#f3f7fb;border:1px solid #e2eaf3;border-radius:10px;padding:12px 15px}.occ-mini span{display:block;color:#607c97;font-size:11px}.occ-mini strong{display:block;font-size:23px;color:#002f6c;margin-top:4px}.occ-toolbar{display:grid;grid-template-columns:1.3fr 1fr 2fr auto;gap:12px;align-items:end;background:#f4f8fc;border:1px solid #e1eaf4;border-radius:10px;padding:13px;margin-bottom:12px}.occ-toolbar button{white-space:nowrap}.occ-retry-box{background:#fff6e4;border:1px solid #f5d38b;border-radius:9px;padding:12px;margin:15px 0}.occ-retry-box p{margin:5px 0 10px}.occ-retry-box button{background:#002f6c}@media(max-width:800px){.occ-dashboard{grid-template-columns:repeat(3,minmax(0,1fr))}.occ-toolbar{grid-template-columns:1fr 1fr}.occ-toolbar>div:nth-child(3){grid-column:1/-1}}@media(max-width:500px){.occ-dashboard{gap:6px}.occ-mini{padding:9px}.occ-mini strong{font-size:19px}.occ-toolbar{grid-template-columns:1fr}}
+
+/* V9.6 — botão principal de ocorrência */
+.occ-primary-send{background:#FFC658!important;color:#002F6C!important;border:1px solid #E7AC30!important;box-shadow:0 2px 6px rgba(0,47,108,.12)}
+.occ-primary-send:hover:not(:disabled){background:#F5B83D!important;filter:none}
+.occ-primary-send:focus-visible{outline:3px solid #002F6C;outline-offset:2px}
