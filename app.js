@@ -630,7 +630,7 @@ $('payment-print').onclick=async()=>{
   for(let i=1;i<=count;i++){
    doc.setPage(i);doc.setDrawColor(215,225,233);doc.line(12,196,285,196);
    doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(110,125,140);
-   doc.text('INNOVA SOLUCOES LOGISTICAS  |  Simulacao para conferencia - nao comprova pagamento',13,201);
+   doc.text('INNOVA | TRANSPORTES E SOLUCOES LOGISTICAS  |  Simulacao para conferencia - nao comprova pagamento',13,201);
    doc.text(`Pagina ${i} de ${count}`,284,201,{align:'right'});
   }
  };
@@ -638,17 +638,36 @@ $('payment-print').onclick=async()=>{
  doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(15);
  doc.text('INNOVA  |  TRANSPORTES E SOLUCOES LOGISTICAS',18,20);
  doc.setFontSize(9);doc.setTextColor(...gold);doc.text(title+'  •  PREVISAO / NAO PAGO',18,28);
- doc.setFillColor(...pale);doc.roundedRect(12,38,273,20,2,2,'F');
- doc.setFont('helvetica','bold');doc.setTextColor(...navy);doc.setFontSize(9);
- doc.text('MOTORISTA',17,45);doc.text('DATA PREVISTA',154,45);doc.text('ROTAS',245,45);
- doc.setFont('helvetica','normal');doc.setFontSize(10);
- doc.text(String(driver),17,52);doc.text(payDate,154,52);doc.text(String(rows.length),245,52);
+ // Periodo definido pelas datas das rotas selecionadas, nao pela data de pagamento.
+ const isoDates=rows.map(r=>String(r.date||'').slice(0,10)).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+ const periodBound=(iso,mode,end)=>{
+  const d=new Date(iso+'T12:00:00');
+  if(mode==='ADVANCE')d.setDate(d.getDate()+(end?7:0)-((d.getDay()+6)%7));
+  else d.setDate(end?(d.getDate()<=15?15:new Date(d.getFullYear(),d.getMonth()+1,0).getDate()):(d.getDate()<=15?1:16));
+  return `${String(d.getFullYear())}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+ };
+ const periodFrom=isoDates.length?billingBR(periodBound(isoDates[0],paymentMode,false)):'—';
+ const periodTo=isoDates.length?billingBR(periodBound(isoDates[isoDates.length-1],paymentMode,true)):'—';
+ const plates=[...new Set(rows.map(r=>String(r.plate||'').trim()).filter(Boolean))];
+ const plateLabel=plates.length?plates.join(' / '):'Nao cadastrada';
+ // CPF aguardando integracao futura com a base de motoristas.
+ const cpfLabel=rows.find(r=>r.cpf)?.cpf||'Nao cadastrado';
+ doc.setFillColor(...pale);doc.roundedRect(12,38,273,28,2,2,'F');
+ doc.setFont('helvetica','bold');doc.setTextColor(...navy);doc.setFontSize(8);
+ doc.text('MOTORISTA',17,44);doc.text('PLACA',119,44);doc.text('CPF',205,44);
+ doc.setFont('helvetica','normal');doc.setFontSize(9);
+ doc.text(String(driver).slice(0,48),17,50);doc.text(plateLabel.slice(0,34),119,50);doc.text(String(cpfLabel),205,50);
+ doc.setFont('helvetica','bold');doc.setFontSize(8);
+ doc.text('PERIODO DAS ROTAS',17,57);doc.text('DATA DO PAGAMENTO',154,57);doc.text('ROTAS',245,57);
+ doc.setFont('helvetica','normal');doc.setFontSize(9);
+ doc.text(`DE: ${periodFrom}  ATE: ${periodTo}`,17,63);
+ doc.text(payDate,154,63);doc.text(String(rows.length),245,63);
  const body=selectedItems.map(({r,st,amount})=>[
   billingBR(r.date),String(r.plan||'—'),String(r.city||'—'),money(r.freight),money(r.toll),
   money(r.comp),money(st.due),money(st.paid+st.settled),money(st.balance),money(amount),money(st.balance-amount)
  ]);
  doc.autoTable({
-  startY:64,margin:{left:12,right:12,bottom:33},
+  startY:71,margin:{left:12,right:12,bottom:33},
   head:[['DATA ROTA','PLANO','CIDADE','FRETE','PEDAGIO','COMPL.','TOTAL','JA PAGO','SALDO ANTES','A PAGAR','SALDO APOS']],
   body,theme:'striped',
   styles:{font:'helvetica',fontSize:7,cellPadding:2.2,textColor:ink,overflow:'linebreak',valign:'middle'},
@@ -766,7 +785,7 @@ async function loadBilling(){
   result.push([plan,billingBR(dateKey),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingKg(weight),billingMoney(invoiceValues.get(plan)?.sum??null),deliveries,r.driver_name||'—',r.plate||'—',embarkedProfile||'Não identificado',billingMoney(freight),toll==null?'Cadastrar pedágio':billingMoney(toll),billingMoney(comp.amount),billingMoney(advance),billingMoney(0),billingMoney(total),billingMoney(revenue),billingMoney(icms),billingMoney(otherTaxes),billingMoney(totalTaxes),billingMoney(aver),billingMoney(operatingCost),billingMoney(adminCost),billingMoney(cteCost),billingMoney(margin),marginPct==null?'Pendente':marginPct.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%']);
   metadata.push({id,freight,toll,plan,city:decisive?.routeCity||'',details,contractedProfile,embarkedProfile,revenue,totalTaxes,aver,adminCost,operatingCost,cteCost});
   filterFacts.push({driver:String(r.driver_name||''),year:Number(String(dateKey).slice(0,4)),month:Number(String(dateKey).slice(5,7)),day:Number(String(dateKey).slice(8,10)),profile:prof,margin});
-  summaryRows.push({id,routeId:r.id,date:dateKey,driver:String(r.driver_name||''),cityCount:cityList.length,weight,deliveries,goods,freight,toll,comp:Number(comp.amount||0),advance,total,revenue,icms,otherTaxes,totalTaxes,aver,adminCost,operatingCost,cteCost,margin});
+  summaryRows.push({id,routeId:r.id,date:dateKey,driver:String(r.driver_name||''),plate:String(r.plate||''),cpf:null,cityCount:cityList.length,weight,deliveries,goods,freight,toll,comp:Number(comp.amount||0),advance,total,revenue,icms,otherTaxes,totalTaxes,aver,adminCost,operatingCost,cteCost,margin});
  }
  // Preencher opções usando todas as rotas importadas, preservando seleções.
  const updateOptions=(id,values,format)=>{const el=$(id),selected=el.value;const previous=[...el.options].slice(0,1).map(o=>({value:o.value,text:o.textContent}));el.replaceChildren();for(const o of previous){const opt=document.createElement('option');opt.value=o.value;opt.textContent=o.text;el.append(opt);}for(const v of values){const opt=document.createElement('option');opt.value=String(v);opt.textContent=format?format(v):String(v);el.append(opt);}el.value=[...el.options].some(o=>o.value===selected)?selected:'';};
