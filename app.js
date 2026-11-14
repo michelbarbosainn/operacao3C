@@ -391,7 +391,7 @@ async function billingDriverProfiles(date){try{const list=await rpc('pcd_v8_driv
 const billingReasonOptions=['DISTÂNCIA DA ROTA','COMPLEXIDADE DA ROTA','ESPERA','BONIFICAÇÃO'];
 function billingCityDetails(plan,items){const modal=$('billing-cities-modal'),body=$('billing-cities-body');$('billing-cities-plan').textContent='Plano '+plan;body.textContent='';for(const item of items){const tr=document.createElement('tr');for(const val of [item.city,item.distance==null?'—':Number(item.distance).toLocaleString('pt-BR')+' km',item.band==null?'Sem faixa':'Faixa '+item.band]){const td=document.createElement('td');td.textContent=val;tr.append(td);}body.append(tr);}modal.classList.remove('hidden');}
 $('billing-cities-close').onclick=()=>$('billing-cities-modal').classList.add('hidden');$('billing-cities-modal').addEventListener('click',e=>{if(e.target.id==='billing-cities-modal')e.currentTarget.classList.add('hidden');});
-function billingTollMultiplier(profile){const x=billingNorm(profile).replace(/[^A-Z0-9]/g,'');return x==='34'||x==='3/4'.replace(/[^A-Z0-9]/g,'')||x==='TRESQUARTOS'?2:1;}
+function billingTollMultiplier(profile){const x=billingNorm(profile).replace(/[^A-Z0-9]/g,'');return ['34','TRESQUARTOS','MEDIO','MEDIUM'].includes(x)?2:1;}
 function billingOpenToll(city,plan){
  $('billing-toll-city').value=city;$('billing-toll-plan').textContent='Plano '+plan+' · cidade de referência '+city;
  $('billing-toll-amount').value='';$('billing-toll-modal').classList.remove('hidden');$('billing-toll-amount').focus();
@@ -417,6 +417,17 @@ async function billingInvoices(plans){
  return rows;
 }
 let financeParamsCache=[];
+let billingCostsCache=[];
+async function billingGetCosts(){
+ const records=await rpc('pcd_billing_cost_parameters_list');
+ billingCostsCache=Array.isArray(records)?records:[];
+ return billingCostsCache;
+}
+function billingCostRate(code,date){
+ const valid=billingCostsCache.filter(x=>x.parameter_code===code&&x.effective_from<=date).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)));
+ return valid.length?Number(valid[0].value):null;
+}
+
 async function financeGetParams(){
  const records=await rpc('pcd_finance_parameters_list');
  financeParamsCache=Array.isArray(records)?records:[];
@@ -429,6 +440,7 @@ function financeRate(key,routeDate){
 function financePercent(v){return v==null?'Não configurado':Number(v).toLocaleString('pt-BR',{maximumFractionDigits:5})+'%';}
 async function loadFinanceParams(){
  const data=await financeGetParams();
+ const costData=await billingGetCosts();
  const names={ICMS:'ICMS',AVERBACAO:'Averbação',ISS:'ISS',IRPJ:'IRPJ',CSLL:'CSLL',OUTROS_TRIBUTOS:'Demais tributos (provisão gerencial)'};
  const basis={ICMS:'Receita bruta',AVERBACAO:'Valor mercadoria',ISS:'Conforme operação',IRPJ:'A definir com contabilidade',CSLL:'A definir com contabilidade',OUTROS_TRIBUTOS:'Receita bruta · estimativa gerencial'};
  const tbody=$('finance-params-body');tbody.textContent='';
@@ -439,9 +451,18 @@ async function loadFinanceParams(){
   for(const val of [names[code],active?financePercent(active.rate_percent):'Não configurado',basis[code],active?billingBR(active.effective_from):'—']){const td=document.createElement('td');td.textContent=val;tr.append(td);}
   tbody.append(tr);
  }
+ for(const [code,name,base,unit] of [['DESP_ADMIN','Despesas administrativas','Receita bruta','%'],['EMISSAO_CTE','Emissão CT-e','Por nota fiscal única','R$']]){
+  const history=costData.filter(x=>x.parameter_code===code).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)));
+  const active=history.find(x=>x.effective_from<=today());
+  const tr=document.createElement('tr');
+  for(const val of [name,active?(unit==='%'?financePercent(active.value):billingMoney(active.value)):'Não configurado',base,active?billingBR(active.effective_from):'—']){const td=document.createElement('td');td.textContent=val;tr.append(td);}tbody.append(tr);
+ }
  const historyBody=$('finance-history-body');historyBody.textContent='';
  for(const x of data.slice().sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)))){
-  const tr=document.createElement('tr');for(const val of [names[x.parameter_code]||x.parameter_code,financePercent(x.rate_percent),billingBR(x.effective_from),x.created_by_email||'—']){const td=document.createElement('td');td.textContent=val;tr.append(td);}historyBody.append(tr);
+  const tr=document.createElement('tr');for(const val of [names[x.parameter_code]||x.parameter_code,financePercent(x.rate_percent),billingBR(x.effective_from),x.created_by_email||'—']){const td=document.createElement('td');td.textContent=val;  tr.append(td);}historyBody.append(tr);
+ }
+ for(const x of costData.slice().sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)))){
+  const tr=document.createElement('tr');for(const val of [x.parameter_code==='DESP_ADMIN'?'Despesas administrativas':'Emissão CT-e',x.parameter_code==='DESP_ADMIN'?financePercent(x.value):billingMoney(x.value),billingBR(x.effective_from),x.created_by_email||'—']){const td=document.createElement('td');td.textContent=val;tr.append(td);}historyBody.append(tr);
  }
 }
 $('finance-effective').value=today();
@@ -449,15 +470,18 @@ $('finance-save').onclick=async()=>{
  const code=$('finance-code').value;
  const raw=$('finance-rate').value.trim().replace(',','.');const rate=Number(raw);
  const date=$('finance-effective').value;
- if(!raw||!Number.isFinite(rate)||rate<0||rate>100){$('finance-error').textContent='Informe uma taxa válida entre 0 e 100%.';return;}
+ if(!raw||!Number.isFinite(rate)||rate<0||(code!=='EMISSAO_CTE'&&rate>100)){$('finance-error').textContent=code==='EMISSAO_CTE'?'Informe um valor em reais válido.':'Informe uma taxa válida entre 0 e 100%.';return;}
  if(!date||date<today()){$('finance-error').textContent='A vigência deve ser hoje ou uma data futura.';return;}
- if(!confirm('Cadastrar nova taxa de '+rate+'% para '+code+' a partir de '+billingBR(date)+'? O histórico será preservado.'))return;
+ if(!confirm('Cadastrar novo valor de '+rate+(code==='EMISSAO_CTE'?' R$':'%')+' para '+code+' a partir de '+billingBR(date)+'? O histórico será preservado.'))return;
  const button=$('finance-save');button.disabled=true;$('finance-error').textContent='';
- try{await rpc('pcd_finance_parameters_save',{p_code:code,p_rate_percent:rate,p_effective_from:date});await loadFinanceParams();$('finance-rate').value='';message('Parâmetro cadastrado com sucesso.');}
+ try{if(['DESP_ADMIN','EMISSAO_CTE'].includes(code))await rpc('pcd_billing_cost_parameters_save',{p_code:code,p_value:rate,p_effective_from:date});else await rpc('pcd_finance_parameters_save',{p_code:code,p_rate_percent:rate,p_effective_from:date});await loadFinanceParams();$('finance-rate').value='';message('Parâmetro cadastrado com sucesso.');}
  catch(e){$('finance-error').textContent=e.message;}finally{button.disabled=false;}
 };
+function billingStyleMargin(tr,margin,revenue){
+ for(const index of [24,25]){const cell=tr.children[index];if(!cell)continue;cell.classList.remove('billing-margin-positive','billing-margin-warning','billing-margin-negative');if(margin==null||!revenue)continue;cell.classList.add(margin<0?'billing-margin-negative':margin/revenue<0.15?'billing-margin-warning':'billing-margin-positive');}
+}
 async function loadBilling(){
- await financeGetParams();
+ await Promise.all([financeGetParams(),billingGetCosts()]);
  const search=$('billing-search').value.trim(),date=billingDateISO($('billing-date').value);
  const a=await rpc('pcd_v8_routes',{p_search:search,p_date:date,p_limit:50,p_offset:billingPage*50});
  billingTotal=a.total||0;const data=a.rows||[];$('billing-total').textContent=billingTotal;
@@ -510,25 +534,40 @@ async function loadBilling(){
   const icmsRate=financeRate('ICMS',dateKey);
   const averRate=financeRate('AVERBACAO',dateKey);
   const otherTaxRate=financeRate('OUTROS_TRIBUTOS',dateKey);
+  const adminRate=billingCostRate('DESP_ADMIN',dateKey);
+  const cteUnit=billingCostRate('EMISSAO_CTE',dateKey);
   const goods=invoiceValues.get(plan)?.sum??null;
   const icms=revenue==null||icmsRate==null?null:revenue*icmsRate/100;
   const aver=goods==null||averRate==null?null:goods*averRate/100;
   const otherTaxes=revenue==null||otherTaxRate==null?null:revenue*otherTaxRate/100;
   const totalTaxes=icms==null||otherTaxes==null?null:icms+otherTaxes;
+  const adminCost=revenue==null||adminRate==null?null:revenue*adminRate/100;
+  const invoiceCount=invoiceKeys.get(plan)?.size??0;
+  const cteCost=cteUnit==null||!invoiceCount?null:cteUnit*invoiceCount;
+  const operatingCost=null; // Sem cadastro de custos operacionais nesta etapa.
   const advance=freight==null||toll==null?null:(freight+Number(comp.amount||0))*0.5+toll;
   const total=freight==null||toll==null?null:freight+toll+Number(comp.amount||0);
-  result.push([plan,billingBR(dateKey),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingKg(weight),billingMoney(invoiceValues.get(plan)?.sum??null),deliveries,r.driver_name||'—',r.plate||'—',embarkedProfile||'Não identificado',billingMoney(freight),toll==null?'Cadastrar pedágio':billingMoney(toll),billingMoney(comp.amount),billingMoney(advance),billingMoney(total),billingMoney(revenue),billingMoney(icms),billingMoney(otherTaxes),billingMoney(totalTaxes),billingMoney(aver)]);
-  metadata.push({id,freight,toll,plan,city:decisive?.routeCity||'',details,contractedProfile,embarkedProfile});
+  const margin=revenue==null||total==null||totalTaxes==null||aver==null||adminCost==null||cteCost==null?null:revenue-total-totalTaxes-aver-adminCost-cteCost;
+  const marginPct=margin==null||revenue===0?null:margin/revenue*100;
+  result.push([plan,billingBR(dateKey),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingKg(weight),billingMoney(invoiceValues.get(plan)?.sum??null),deliveries,r.driver_name||'—',r.plate||'—',embarkedProfile||'Não identificado',billingMoney(freight),toll==null?'Cadastrar pedágio':billingMoney(toll),billingMoney(comp.amount),billingMoney(advance),billingMoney(total),billingMoney(revenue),billingMoney(icms),billingMoney(otherTaxes),billingMoney(totalTaxes),billingMoney(aver),'A parametrizar',billingMoney(adminCost),billingMoney(cteCost),billingMoney(margin),marginPct==null?'Pendente':marginPct.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%']);
+  metadata.push({id,freight,toll,plan,city:decisive?.routeCity||'',details,contractedProfile,embarkedProfile,revenue,totalTaxes,aver,adminCost,cteCost});
  }
- $('billing-table').innerHTML=table(['Plano','Data rota','Qtd. cidades','Cidade determinante','Faixa','Peso','Valor mercadoria','Qtd. entregas','Motorista','Placa','Perfil embarcado','Frete a pagar','Pedágio','Complemento','Total adiantamento','Total a pagar','Receita bruta','ICMS','Demais tributos (provisão)','Total impostos','Averbação'],result);
+ $('billing-table').innerHTML=table(['Plano','Data rota','Qtd. cidades','Cidade determinante','Faixa','Peso','Valor mercadoria','Qtd. entregas','Motorista','Placa','Perfil embarcado','Frete a pagar','Pedágio','Complemento','Total adiantamento','Total a pagar','Receita bruta','ICMS','Demais tributos (provisão)','Total impostos','Averbação','Desp. operacionais','Desp. administrativas','Emissão CT-e','Margem R$ (estimada)','Margem % (estimada)'],result);
  $('billing-table').querySelectorAll('tbody tr').forEach((tr,i)=>{const meta=metadata[i],c=billingComplements.get(meta.id)||{amount:0,reason:''};
   const amount=document.createElement('input');amount.type='number';amount.min='0';amount.step='0.01';amount.className='billing-comp-input';amount.value=c.amount||'';amount.placeholder='0,00';amount.title='Complemento simulado; ainda não gravado no banco';
   const reason=document.createElement('select');reason.className='billing-reason-input';for(const [value,label] of [['','Selecione o motivo'],...billingReasonOptions.map(x=>[x,x])]){const option=document.createElement('option');option.value=value;option.textContent=label;reason.append(option);}reason.value=billingReasonOptions.includes(c.reason)?c.reason:'';reason.title='Motivo do complemento';reason.disabled=!(Number(c.amount)>0);
-  const update=()=>{const val=Number(amount.value);if(!Number.isFinite(val)||val<0){amount.setCustomValidity('Informe valor válido');return;}amount.setCustomValidity('');reason.disabled=val<=0;if(val<=0)reason.value='';reason.required=val>0;reason.classList.toggle('billing-reason-required',val>0&&!reason.value);billingComplements.set(meta.id,{amount:val,reason:reason.value.trim()});tr.children[14].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney((meta.freight+val)*0.5+meta.toll);tr.children[15].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney(meta.freight+meta.toll+val);};
+  const update=()=>{const val=Number(amount.value);if(!Number.isFinite(val)||val<0){amount.setCustomValidity('Informe valor válido');return;}amount.setCustomValidity('');reason.disabled=val<=0;if(val<=0)reason.value='';reason.required=val>0;reason.classList.toggle('billing-reason-required',val>0&&!reason.value);billingComplements.set(meta.id,{amount:val,reason:reason.value.trim()});tr.children[14].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney((meta.freight+val)*0.5+meta.toll);tr.children[15].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney(meta.freight+meta.toll+val);
+   const totalCost=meta.freight==null||meta.toll==null?null:meta.freight+meta.toll+val;
+   const margin=meta.revenue==null||totalCost==null||meta.totalTaxes==null||meta.aver==null||meta.adminCost==null||meta.cteCost==null?null:meta.revenue-totalCost-meta.totalTaxes-meta.aver-meta.adminCost-meta.cteCost;
+   tr.children[24].textContent=billingMoney(margin);tr.children[25].textContent=margin==null||!meta.revenue?'Pendente':(margin/meta.revenue*100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
+   billingStyleMargin(tr,margin,meta.revenue);
+  };
   amount.addEventListener('input',update);reason.addEventListener('change',update);
   tr.children[13].textContent='';const compInline=document.createElement('div');compInline.className='billing-comp-inline';compInline.append(amount,reason);tr.children[13].append(compInline);
   if(meta.city){const cell=tr.children[3];cell.textContent='';const cityButton=document.createElement('button');cityButton.type='button';cityButton.className='billing-city-link';cityButton.textContent=meta.city;cityButton.title='Consultar cidades, distâncias e faixas do plano';cityButton.onclick=()=>billingCityDetails(meta.plan,meta.details);cell.append(cityButton);}
   if(meta.toll==null&&meta.city){const td=tr.children[12];td.textContent='';const btn=document.createElement('button');btn.type='button';btn.className='billing-register-toll';btn.textContent='+ Cadastrar pedágio';btn.onclick=()=>billingOpenToll(meta.city,meta.plan);td.append(btn);}
+  const initialMargin=meta.revenue==null||meta.freight==null||meta.toll==null||meta.totalTaxes==null||meta.aver==null||meta.adminCost==null||meta.cteCost==null?null:meta.revenue-meta.freight-meta.toll-Number(c.amount||0)-meta.totalTaxes-meta.aver-meta.adminCost-meta.cteCost;
+  billingStyleMargin(tr,initialMargin,meta.revenue);
   const profileCell=tr.children[10];profileCell.title='Perfil contratado: '+meta.contractedProfile+' · Perfil embarcado: '+(meta.embarkedProfile||'não identificado');
 
  });
