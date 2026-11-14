@@ -649,14 +649,14 @@ $('payment-print').onclick=async()=>{
   txt('INNOVA',13,14,17,[255,255,255],true);
   txt('| TRANSPORTES E SOLUÇÕES LOGÍSTICAS',49,14,10,[231,238,245]);
   txt(title,13,24,10,[255,255,255],true);
-  txt(isAdvance?'PRÉVIA  ·  NÃO PAGO':'PRÉVIA  ·  NÃO PAGO',284,24,8,gold,true,{align:'right'});
+  
  };
  const pageFooter=()=>{
   const count=doc.internal.getNumberOfPages();
   for(let i=1;i<=count;i++){
    doc.setPage(i);doc.setDrawColor(218,227,234);doc.line(13,193,284,193);
    txt('INNOVA | TRANSPORTES E SOLUÇÕES LOGÍSTICAS',13,199,7,muted);
-   txt('Documento de conferência. Não comprova pagamento.',149,199,7,muted,false,{align:'center'});
+   
    txt(`Página ${i} de ${count}`,284,199,7,muted,false,{align:'right'});
   }
  };
@@ -680,7 +680,7 @@ $('payment-print').onclick=async()=>{
  ]);
  doc.autoTable({
   startY:105,margin:{left:13,right:13,bottom:25,top:38},
-  head:[['DATA ROTA','PLANO','CIDADE','FRETE','PEDÁGIO','COMPL.','TOTAL','JÁ PAGO','SALDO ANTES','A PAGAR','SALDO APÓS']],
+  head:[['DATA ROTA','PLANO','CIDADE DETERMINANTE','FRETE','PEDÁGIO','COMPL.','TOTAL','JÁ PAGO','SALDO ANTES','A PAGAR','SALDO APÓS']],
   body,theme:'grid',showHead:'everyPage',
   styles:{font:'helvetica',fontSize:7.2,cellPadding:2.2,textColor:ink,overflow:'ellipsize',valign:'middle',lineColor:[226,233,239],lineWidth:.15},
   headStyles:{fillColor:blue,textColor:[255,255,255],fontStyle:'bold',fontSize:6.7},
@@ -700,7 +700,7 @@ $('payment-print').onclick=async()=>{
   txt(money(value),x+3,y+15,10,i===3?[255,255,255]:navy,true);
  });
  y+=25;
- txt('Prévia emitida para conferência. O pagamento somente será registrado após a confirmação no sistema.',13,y,7.4,muted);
+ 
  pageFooter();
  const filename='INNOVA_'+(paymentMode==='ADVANCE'?'ADIANTAMENTO':'QUITACAO')+'_'+driver.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9]+/g,'_')+'_'+$('payment-date').value+'.pdf';
  doc.save(filename);
@@ -789,7 +789,7 @@ async function loadBilling(){
   result.push([plan,billingBR(dateKey),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingKg(weight),billingMoney(invoiceValues.get(plan)?.sum??null),deliveries,r.driver_name||'—',r.plate||'—',embarkedProfile||'Não identificado',billingMoney(freight),toll==null?'Cadastrar pedágio':billingMoney(toll),billingMoney(comp.amount),billingMoney(advance),billingMoney(0),billingMoney(total),billingMoney(revenue),billingMoney(icms),billingMoney(otherTaxes),billingMoney(totalTaxes),billingMoney(aver),billingMoney(operatingCost),billingMoney(adminCost),billingMoney(cteCost),billingMoney(margin),marginPct==null?'Pendente':marginPct.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%']);
   metadata.push({id,freight,toll,plan,city:decisive?.routeCity||'',details,contractedProfile,embarkedProfile,revenue,totalTaxes,aver,adminCost,operatingCost,cteCost});
   filterFacts.push({driver:String(r.driver_name||''),year:Number(String(dateKey).slice(0,4)),month:Number(String(dateKey).slice(5,7)),day:Number(String(dateKey).slice(8,10)),profile:prof,margin});
-  summaryRows.push({id,routeId:r.id,date:dateKey,driver:String(r.driver_name||''),plate:String(r.plate||''),cpf:null,cityCount:cityList.length,weight,deliveries,goods,freight,toll,comp:Number(comp.amount||0),advance,total,revenue,icms,otherTaxes,totalTaxes,aver,adminCost,operatingCost,cteCost,margin});
+  summaryRows.push({id,plan,city:decisive?.routeCity||'',routeId:r.id,date:dateKey,driver:String(r.driver_name||''),plate:String(r.plate||''),cpf:null,cityCount:cityList.length,weight,deliveries,goods,freight,toll,comp:Number(comp.amount||0),advance,total,revenue,icms,otherTaxes,totalTaxes,aver,adminCost,operatingCost,cteCost,margin});
  }
  // Preencher opções usando todas as rotas importadas, preservando seleções.
  const updateOptions=(id,values,format)=>{const el=$(id),selected=el.value;const previous=[...el.options].slice(0,1).map(o=>({value:o.value,text:o.textContent}));el.replaceChildren();for(const o of previous){const opt=document.createElement('option');opt.value=o.value;opt.textContent=o.text;el.append(opt);}for(const v of values){const opt=document.createElement('option');opt.value=String(v);opt.textContent=format?format(v):String(v);el.append(opt);}el.value=[...el.options].some(o=>o.value===selected)?selected:'';};
