@@ -610,7 +610,7 @@ $('payment-print').onclick=async()=>{
  const doc=new api.jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
  if(typeof doc.autoTable!=='function'){error.textContent='Módulo de tabelas PDF indisponível.';return;}
  const money=v=>payCurrency(Number(v)||0);
- const navy=[7,43,80],pale=[232,241,247],ink=[32,52,72],gold=[245,185,73];
+ const navy=[9,39,72],blue=[23,82,124],muted=[103,121,138],ink=[35,54,72],pale=[238,244,248],gold=[234,178,69];
  const selectedItems=selected.map(el=>{
   const r=paymentCandidates.find(x=>payKey(x)===el.dataset.id);
   const st=payRowState(r);
@@ -621,83 +621,87 @@ $('payment-print').onclick=async()=>{
   error.textContent='Revise os valores selecionados antes de emitir o extrato.';return;
  }
  const sum=fn=>selectedItems.reduce((n,x)=>n+Number(fn(x)||0),0);
- const total=sum(x=>x.st.due),paid=sum(x=>x.st.paid),settled=sum(x=>x.st.settled);
+ const total=sum(x=>x.st.due),paid=sum(x=>x.st.paid+ x.st.settled);
  const previousBalance=sum(x=>x.st.balance),toPay=sum(x=>x.amount),remaining=previousBalance-toPay;
  const payDate=billingBR($('payment-date').value);
- const title=paymentMode==='ADVANCE'?'EXTRATO DE ADIANTAMENTO':'EXTRATO DE QUITACAO';
- const footer=()=>{
-  const count=doc.internal.getNumberOfPages();
-  for(let i=1;i<=count;i++){
-   doc.setPage(i);doc.setDrawColor(215,225,233);doc.line(12,196,285,196);
-   doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(110,125,140);
-   doc.text('INNOVA | TRANSPORTES E SOLUCOES LOGISTICAS  |  Simulacao para conferencia - nao comprova pagamento',13,201);
-   doc.text(`Pagina ${i} de ${count}`,284,201,{align:'right'});
-  }
- };
- doc.setFillColor(...navy);doc.roundedRect(12,10,273,24,2,2,'F');
- doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(15);
- doc.text('INNOVA  |  TRANSPORTES E SOLUCOES LOGISTICAS',18,20);
- doc.setFontSize(9);doc.setTextColor(...gold);doc.text(title+'  •  PREVISAO / NAO PAGO',18,28);
- // Periodo definido pelas datas das rotas selecionadas, nao pela data de pagamento.
+ const isAdvance=paymentMode==='ADVANCE';
+ const title=isAdvance?'EXTRATO DE ADIANTAMENTO':'EXTRATO DE QUITAÇÃO';
  const isoDates=rows.map(r=>String(r.date||'').slice(0,10)).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
  const periodBound=(iso,mode,end)=>{
   const d=new Date(iso+'T12:00:00');
-  if(mode==='ADVANCE')d.setDate(d.getDate()+(end?7:0)-((d.getDay()+6)%7));
+  if(mode==='ADVANCE')d.setDate(d.getDate()+(end?6:0)-((d.getDay()+6)%7));
   else d.setDate(end?(d.getDate()<=15?15:new Date(d.getFullYear(),d.getMonth()+1,0).getDate()):(d.getDate()<=15?1:16));
   return `${String(d.getFullYear())}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
  };
  const periodFrom=isoDates.length?billingBR(periodBound(isoDates[0],paymentMode,false)):'—';
  const periodTo=isoDates.length?billingBR(periodBound(isoDates[isoDates.length-1],paymentMode,true)):'—';
  const plates=[...new Set(rows.map(r=>String(r.plate||'').trim()).filter(Boolean))];
- const plateLabel=plates.length?plates.join(' / '):'Nao cadastrada';
- // CPF aguardando integracao futura com a base de motoristas.
- const cpfLabel=rows.find(r=>r.cpf)?.cpf||'Nao cadastrado';
- doc.setFillColor(...pale);doc.roundedRect(12,38,273,28,2,2,'F');
- doc.setFont('helvetica','bold');doc.setTextColor(...navy);doc.setFontSize(8);
- doc.text('MOTORISTA',17,44);doc.text('PLACA',119,44);doc.text('CPF',205,44);
- doc.setFont('helvetica','normal');doc.setFontSize(9);
- doc.text(String(driver).slice(0,48),17,50);doc.text(plateLabel.slice(0,34),119,50);doc.text(String(cpfLabel),205,50);
- doc.setFont('helvetica','bold');doc.setFontSize(8);
- doc.text('PERIODO DAS ROTAS',17,57);doc.text('DATA DO PAGAMENTO',154,57);doc.text('ROTAS',245,57);
- doc.setFont('helvetica','normal');doc.setFontSize(9);
- doc.text(`DE: ${periodFrom}  ATE: ${periodTo}`,17,63);
- doc.text(payDate,154,63);doc.text(String(rows.length),245,63);
+ const plateLabel=plates.length?plates.join(' / '):'Não cadastrada';
+ const cpfLabel=rows.find(r=>r.cpf)?.cpf||'Não cadastrado';
+ const txt=(t,x,y,size=9,color=ink,bold=false,opts={})=>{
+  doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(size);doc.setTextColor(...color);
+  doc.text(String(t),x,y,opts);
+ };
+ const fit=(t,max)=>doc.splitTextToSize(String(t),max)[0]||'';
+ const pageHeader=()=>{
+  doc.setFillColor(...navy);doc.rect(0,0,297,32,'F');
+  doc.setFillColor(...gold);doc.rect(0,31,297,1.2,'F');
+  txt('INNOVA',13,14,17,[255,255,255],true);
+  txt('| TRANSPORTES E SOLUÇÕES LOGÍSTICAS',49,14,10,[231,238,245]);
+  txt(title,13,24,10,[255,255,255],true);
+  txt(isAdvance?'PRÉVIA  ·  NÃO PAGO':'PRÉVIA  ·  NÃO PAGO',284,24,8,gold,true,{align:'right'});
+ };
+ const pageFooter=()=>{
+  const count=doc.internal.getNumberOfPages();
+  for(let i=1;i<=count;i++){
+   doc.setPage(i);doc.setDrawColor(218,227,234);doc.line(13,193,284,193);
+   txt('INNOVA | TRANSPORTES E SOLUÇÕES LOGÍSTICAS',13,199,7,muted);
+   txt('Documento de conferência. Não comprova pagamento.',149,199,7,muted,false,{align:'center'});
+   txt(`Página ${i} de ${count}`,284,199,7,muted,false,{align:'right'});
+  }
+ };
+ pageHeader();
+ doc.setFillColor(...pale);doc.roundedRect(13,38,271,31,2,2,'F');
+ const field=(label,value,x,y,w)=>{txt(label,x,y,7,muted,true);txt(fit(value,w),x,y+6,10,navy,true);};
+ field('MOTORISTA',driver,18,45,90);field('PLACA',plateLabel,119,45,70);field('CPF',cpfLabel,208,45,70);
+ field('PERÍODO DAS ROTAS',`${periodFrom}  a  ${periodTo}`,18,59,110);
+ field('DATA INFORMADA PARA PAGAMENTO',payDate,155,59,65);
+ field('ROTAS SELECIONADAS',String(rows.length),246,59,30);
+ // Destaque para o valor que está sendo simulado, sem confundi-lo com pagamento confirmado.
+ doc.setFillColor(...navy);doc.roundedRect(13,74,271,18,2,2,'F');
+ txt('VALOR SELECIONADO PARA PAGAMENTO',19,81,8,[220,232,242],true);
+ txt(money(toPay),19,88,15,[255,255,255],true);
+ txt('SALDO RESTANTE APÓS ESTE PAGAMENTO',278,81,8,[220,232,242],true,{align:'right'});
+ txt(money(remaining),278,88,13,[255,255,255],true,{align:'right'});
+ txt('DETALHAMENTO DAS ROTAS',13,101,9,navy,true);
  const body=selectedItems.map(({r,st,amount})=>[
   billingBR(r.date),String(r.plan||'—'),String(r.city||'—'),money(r.freight),money(r.toll),
   money(r.comp),money(st.due),money(st.paid+st.settled),money(st.balance),money(amount),money(st.balance-amount)
  ]);
  doc.autoTable({
-  startY:71,margin:{left:12,right:12,bottom:33},
-  head:[['DATA ROTA','PLANO','CIDADE','FRETE','PEDAGIO','COMPL.','TOTAL','JA PAGO','SALDO ANTES','A PAGAR','SALDO APOS']],
-  body,theme:'striped',
-  styles:{font:'helvetica',fontSize:7,cellPadding:2.2,textColor:ink,overflow:'linebreak',valign:'middle'},
-  headStyles:{fillColor:navy,textColor:[255,255,255],fontStyle:'bold',fontSize:6.6},
-  alternateRowStyles:{fillColor:[245,249,252]},
-  columnStyles:{0:{cellWidth:21},1:{cellWidth:20},2:{cellWidth:34},3:{cellWidth:23},4:{cellWidth:21},5:{cellWidth:21},6:{cellWidth:24},7:{cellWidth:24},8:{cellWidth:28},9:{cellWidth:28},10:{cellWidth:29}},
-  didParseCell:data=>{if(data.section==='body'&&data.column.index===9){data.cell.styles.fontStyle='bold';data.cell.styles.textColor=navy;}}
+  startY:105,margin:{left:13,right:13,bottom:25,top:38},
+  head:[['DATA ROTA','PLANO','CIDADE','FRETE','PEDÁGIO','COMPL.','TOTAL','JÁ PAGO','SALDO ANTES','A PAGAR','SALDO APÓS']],
+  body,theme:'grid',showHead:'everyPage',
+  styles:{font:'helvetica',fontSize:7.2,cellPadding:2.2,textColor:ink,overflow:'ellipsize',valign:'middle',lineColor:[226,233,239],lineWidth:.15},
+  headStyles:{fillColor:blue,textColor:[255,255,255],fontStyle:'bold',fontSize:6.7},
+  alternateRowStyles:{fillColor:[247,250,252]},
+  columnStyles:{0:{cellWidth:21},1:{cellWidth:19},2:{cellWidth:33},3:{cellWidth:22},4:{cellWidth:21},5:{cellWidth:20},6:{cellWidth:23},7:{cellWidth:23},8:{cellWidth:29},9:{cellWidth:29},10:{cellWidth:31}},
+  didParseCell:data=>{if(data.section==='body'&&data.column.index===9){data.cell.styles.fontStyle='bold';data.cell.styles.textColor=navy;data.cell.styles.fillColor=[236,244,250];}},
+  didDrawPage:()=>{if(doc.internal.getCurrentPageInfo().pageNumber>1)pageHeader();}
  });
  let y=doc.lastAutoTable.finalY+8;
- if(y>153){doc.addPage();y=20;}
- doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(...navy);
- doc.text('RESUMO FINANCEIRO',14,y+4);y+=9;
- const metrics=[
-  ['TOTAL DAS ROTAS',total],['PAGAMENTOS ANTERIORES',paid+settled],
-  ['SALDO ANTES',previousBalance],['VALOR SELECIONADO PARA PAGAR',toPay],['SALDO APOS PAGAMENTO',remaining]
- ];
- const left=14,boxW=269,rowH=9;
+ if(y+45>190){doc.addPage();pageHeader();y=42;}
+ txt('RESUMO FINANCEIRO',13,y,9,navy,true);y+=5;
+ const metrics=[['TOTAL DAS ROTAS',total],['PAGAMENTOS ANTERIORES',paid],['SALDO DISPONÍVEL ANTES',previousBalance],['VALOR A PAGAR',toPay],['SALDO APÓS PAGAMENTO',remaining]];
+ const colW=52.6,gap=2;
  metrics.forEach(([label,value],i)=>{
-  const yy=y+i*rowH,highlight=i===3;
-  doc.setFillColor(...(highlight?navy:i%2===0?pale:[250,252,254]));
-  doc.roundedRect(left,yy,boxW,rowH-0.5,1,1,'F');
-  doc.setFont('helvetica',highlight?'bold':'normal');doc.setFontSize(9);
-  doc.setTextColor(...(highlight?[255,255,255]:ink));
-  doc.text(label,left+4,yy+5.9);
-  doc.setFont('helvetica','bold');doc.text(money(value),left+boxW-5,yy+5.9,{align:'right'});
+  const x=13+i*(colW+gap);doc.setFillColor(...(i===3?navy:pale));doc.roundedRect(x,y,colW,20,1.6,1.6,'F');
+  txt(fit(label,colW-6),x+3,y+7,6.7,i===3?[226,237,247]:muted,true);
+  txt(money(value),x+3,y+15,10,i===3?[255,255,255]:navy,true);
  });
- y+=metrics.length*rowH+7;
- doc.setFont('helvetica','italic');doc.setFontSize(8);doc.setTextColor(105,119,132);
- doc.text('Documento de conferencia gerado antes da confirmacao. O registro bancario depende da acao Confirmar pagamento.',14,Math.min(y,190));
- footer();
+ y+=25;
+ txt('Prévia emitida para conferência. O pagamento somente será registrado após a confirmação no sistema.',13,y,7.4,muted);
+ pageFooter();
  const filename='INNOVA_'+(paymentMode==='ADVANCE'?'ADIANTAMENTO':'QUITACAO')+'_'+driver.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9]+/g,'_')+'_'+$('payment-date').value+'.pdf';
  doc.save(filename);
 };
