@@ -101,7 +101,7 @@ async function openPlanInvoices(r){
    html+='</tbody></table></div></details>';
   }
   if(invoices.length){
-   html+=`<div class="occ-form"><div class="occ-two"><div><label>Motivo da ocorrência</label><select id="occ-reason"><option value="">Selecione...</option>${reasons.map(x=>`<option value="${Number(x.id)}">${esc(x.name)}</option>`).join('')}</select></div><div><label>Notas selecionadas</label><div id="occ-selected" class="occ-count">0 NF(s)</div></div></div><label>Descrição</label><textarea id="occ-description" maxlength="2000" placeholder="Descreva objetivamente o ocorrido e o apoio solicitado."></textarea><p class="muted">Primeiro registra como rascunho. Após registrar, use o histórico para solicitar o envio de teste exclusivamente ao e-mail de homologação.</p></div>`;
+   html+=`<div class="occ-form"><div class="occ-two"><div><label>Motivo da ocorrência</label><select id="occ-reason"><option value="">Selecione...</option>${reasons.map(x=>`<option value="${Number(x.id)}">${esc(x.name)}</option>`).join('')}</select></div><div><label>Notas selecionadas</label><div id="occ-selected" class="occ-count">0 NF(s)</div></div></div><label>Descrição da ocorrência</label><textarea id="occ-description" maxlength="2000" placeholder="Descreva objetivamente o ocorrido e o apoio solicitado."></textarea><div class="occ-first-upload"><label for="occ-initial-files">Evidências (opcional)</label><input id="occ-initial-files" type="file" accept=".pdf,.jpg,.jpeg,.png" multiple><small>PDF, JPG ou PNG; até 10 MB por arquivo. Novos anexos podem ser adicionados depois.</small></div><button type="button" id="occ-create-send" class="occ-primary-send">Registrar e enviar ocorrência</button><p class="muted">Homologação: envio somente para michelbarbosa@innovasl.com.br. Caso o envio falhe, a ocorrência ficará registrada para diagnóstico, sem criar outra.</p></div>`;
   }
   html+='<h3 class="occ-history-title">Histórico do plano</h3>';
   if(!existing.length)html+='<p class="muted">Nenhuma ocorrência registrada neste plano.</p>';
@@ -109,18 +109,46 @@ async function openPlanInvoices(r){
    const nfs=(o.invoices||[]).map(x=>x.number).join(', ');
    html+=`<div class="occ-history"><b>OC-${new Date(o.created_at).getFullYear()}-${String(o.id).padStart(6,'0')}</b> · <span class="occ-status">${esc(o.status)}</span><div>${esc(o.customer_name)} · ${esc(o.city)} · ${esc(o.reason)}</div><small>NF(s): ${esc(nfs)} · ${new Date(o.created_at).toLocaleString('pt-BR')}</small><p>${esc(o.description)}</p><div class="occ-actions"><button class="small occ-manage" data-occ-id="${Number(o.id)}">Gerenciar / Anexos / Envio / Encerramento</button></div></div>`;
   }
-  modal('Notas fiscais e ocorrências',`Plano ${r.plan_number} · ${r.city||'—'} · ${r.driver_name||'Motorista não escalado'}`,html,async()=>{
-   const marked=[...$('modal-body').querySelectorAll('.occ-nf:checked')];
-   if(!marked.length)throw Error('Selecione ao menos uma NF.');
-   if(new Set(marked.map(x=>x.dataset.customer)).size!==1)throw Error('Registre uma ocorrência por destinatário.');
-   const reason=Number($('occ-reason').value),description=$('occ-description').value.trim();
-   if(!reason||!description)throw Error('Informe o motivo e a descrição.');
-   const result=await rpc('pcd_v9_create_occurrence',{p_plan:r.plan_number,p_invoice_ids:marked.map(x=>Number(x.dataset.id)),p_reason_id:reason,p_description:description});
-   message(`Ocorrência ${result.reference} registrada como RASCUNHO. Nenhum e-mail enviado.`);
-  });
-  $('modal-save').textContent='Registrar ocorrência (rascunho)';
-  $('modal-save').disabled=!invoices.length;
+  modal('Notas fiscais e ocorrências',`Plano ${r.plan_number} · ${r.city||'—'} · ${r.driver_name||'Motorista não escalado'}`,html,async()=>{});
+  $('modal-save').classList.add('hidden');
   const body=$('modal-body');
+  const createButton=$('occ-create-send');
+  if(createButton)createButton.onclick=async()=>{
+   let createdId=null;
+   try{
+    const marked=[...body.querySelectorAll('.occ-nf:checked')];
+    if(!marked.length)throw Error('Selecione ao menos uma nota fiscal.');
+    if(new Set(marked.map(x=>x.dataset.customer)).size!==1)throw Error('Registre uma ocorrência por destinatário.');
+    const reason=Number($('occ-reason').value),description=$('occ-description').value.trim();
+    if(!reason||!description)throw Error('Informe o motivo e a descrição.');
+    const files=[...$('occ-initial-files').files];
+    if(files.some(f=>!['application/pdf','image/jpeg','image/png'].includes(f.type)||f.size<1||f.size>10485760))throw Error('Anexo inválido. Utilize PDF/JPG/PNG de até 10 MB.');
+    if(files.reduce((n,f)=>n+f.size,0)>12*1024*1024)throw Error('O total de anexos excede 12 MB.');
+    createButton.disabled=true;createButton.textContent='Registrando ocorrência...';
+    const created=await rpc('pcd_v9_create_occurrence',{p_plan:r.plan_number,p_invoice_ids:marked.map(x=>Number(x.dataset.id)),p_reason_id:reason,p_description:description});
+    createdId=Number(created.id||created.occurrence_id);
+    if(!Number.isSafeInteger(createdId)||createdId<1)throw Error('Ocorrência criada, mas o identificador não foi retornado. Verifique o histórico antes de repetir.');
+    const ids=[];
+    for(const f of files){
+     createButton.textContent='Anexando evidências...';
+     const {data:{user},error:authError}=await db.auth.getUser();if(authError||!user)throw Error('Sessão expirada');
+     const path=`${user.id}/${createdId}/${crypto.randomUUID()}-${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+     const {error:uploadError}=await db.storage.from('pcd-occurrences').upload(path,f,{contentType:f.type,upsert:false});if(uploadError)throw uploadError;
+     ids.push(await rpc('pcd_v92_add_attachment',{p_occurrence_id:createdId,p_path:path,p_name:f.name,p_mime:f.type,p_size:f.size}));
+    }
+    createButton.textContent='Solicitando envio...';
+    const queued=await rpc('pcd_v92_queue_email',{p_occurrence_id:createdId,p_kind:'INICIAL',p_note:'',p_attachment_ids:ids.map(Number)});
+    const {data,error}=await db.functions.invoke('pcd-occurrence-send',{body:{queue_id:queued.id}});
+    if(error){let detail=error.message;try{const payload=await error.context?.json?.();detail=payload?.error||payload?.message||detail;}catch{}throw Error('Fila #'+queued.id+': '+detail);}
+    if(!data?.ok)throw Error('Fila #'+queued.id+': '+(data?.error||'Envio não confirmado'));
+    message('Ocorrência registrada e aceita pelo Resend. Confira o e-mail de homologação.');
+    await openPlanInvoices(r);
+   }catch(e){
+    message((createdId?'Ocorrência #'+createdId+' registrada, mas o envio não foi confirmado. Não registre novamente. Abra o histórico para verificar ou complementar. ':'Não foi possível registrar: ')+e.message,true);
+    createButton.disabled=Boolean(createdId);
+    createButton.textContent=createdId?'Ocorrência registrada — confira o histórico':'Registrar e enviar ocorrência';
+   }finally{if(!createdId)createButton.disabled=false;}
+  };
   body.querySelectorAll('.occ-manage').forEach(b=>b.onclick=()=>manageOccurrence(Number(b.dataset.occId),r));
   const update=()=>{const n=body.querySelectorAll('.occ-nf:checked').length;const el=$('occ-selected');if(el)el.textContent=n+' NF(s)';};
   body.querySelectorAll('.occ-select-all').forEach(all=>all.onchange=()=>{all.closest('table').querySelectorAll('.occ-nf').forEach(c=>c.checked=all.checked);update();});
