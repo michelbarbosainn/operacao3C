@@ -420,7 +420,8 @@ let financeParamsCache=[];
 let billingCostsCache=[];
 async function billingGetCosts(){
  const records=await rpc('pcd_billing_cost_parameters_list');
- billingCostsCache=Array.isArray(records)?records:[];
+ const operating=await rpc('pcd_billing_operating_parameters_list');
+ billingCostsCache=[...(Array.isArray(records)?records:[]),...(Array.isArray(operating)?operating:[])];
  return billingCostsCache;
 }
 function billingCostRate(code,date){
@@ -451,7 +452,7 @@ async function loadFinanceParams(){
   for(const val of [names[code],active?financePercent(active.rate_percent):'Não configurado',basis[code],active?billingBR(active.effective_from):'—']){const td=document.createElement('td');td.textContent=val;tr.append(td);}
   tbody.append(tr);
  }
- for(const [code,name,base,unit] of [['DESP_ADMIN','Despesas administrativas','Receita bruta','%'],['EMISSAO_CTE','Emissão CT-e','Por nota fiscal única','R$']]){
+ for(const [code,name,base,unit] of [['DESP_ADMIN','Despesas administrativas','Receita bruta','%'],['DESP_OPER','Despesas operacionais','Receita bruta','%'],['EMISSAO_CTE','Emissão CT-e','Por nota fiscal única','R$']]){
   const history=costData.filter(x=>x.parameter_code===code).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)));
   const active=history.find(x=>x.effective_from<=today());
   const tr=document.createElement('tr');
@@ -462,7 +463,7 @@ async function loadFinanceParams(){
   const tr=document.createElement('tr');for(const val of [names[x.parameter_code]||x.parameter_code,financePercent(x.rate_percent),billingBR(x.effective_from),x.created_by_email||'—']){const td=document.createElement('td');td.textContent=val;  tr.append(td);}historyBody.append(tr);
  }
  for(const x of costData.slice().sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)))){
-  const tr=document.createElement('tr');for(const val of [x.parameter_code==='DESP_ADMIN'?'Despesas administrativas':'Emissão CT-e',x.parameter_code==='DESP_ADMIN'?financePercent(x.value):billingMoney(x.value),billingBR(x.effective_from),x.created_by_email||'—']){const td=document.createElement('td');td.textContent=val;tr.append(td);}historyBody.append(tr);
+  const tr=document.createElement('tr');for(const val of [x.parameter_code==='DESP_ADMIN'?'Despesas administrativas':x.parameter_code==='DESP_OPER'?'Despesas operacionais':'Emissão CT-e',x.parameter_code!=='EMISSAO_CTE'?financePercent(x.value):billingMoney(x.value),billingBR(x.effective_from),x.created_by_email||'—']){const td=document.createElement('td');td.textContent=val;tr.append(td);}historyBody.append(tr);
  }
 }
 $('finance-effective').value=today();
@@ -474,17 +475,17 @@ $('finance-save').onclick=async()=>{
  if(!date||date<today()){$('finance-error').textContent='A vigência deve ser hoje ou uma data futura.';return;}
  if(!confirm('Cadastrar novo valor de '+rate+(code==='EMISSAO_CTE'?' R$':'%')+' para '+code+' a partir de '+billingBR(date)+'? O histórico será preservado.'))return;
  const button=$('finance-save');button.disabled=true;$('finance-error').textContent='';
- try{if(['DESP_ADMIN','EMISSAO_CTE'].includes(code))await rpc('pcd_billing_cost_parameters_save',{p_code:code,p_value:rate,p_effective_from:date});else await rpc('pcd_finance_parameters_save',{p_code:code,p_rate_percent:rate,p_effective_from:date});await loadFinanceParams();$('finance-rate').value='';message('Parâmetro cadastrado com sucesso.');}
+ try{if(code==='DESP_OPER')await rpc('pcd_billing_operating_parameters_save',{p_value:rate,p_effective_from:date});else if(['DESP_ADMIN','EMISSAO_CTE'].includes(code))await rpc('pcd_billing_cost_parameters_save',{p_code:code,p_value:rate,p_effective_from:date});else await rpc('pcd_finance_parameters_save',{p_code:code,p_rate_percent:rate,p_effective_from:date});await loadFinanceParams();$('finance-rate').value='';message('Parâmetro cadastrado com sucesso.');}
  catch(e){$('finance-error').textContent=e.message;}finally{button.disabled=false;}
 };
 function billingSummaryRender(rows){
  const root=$('billing-stats');if(!root)return;
  const fields=[
-  ['Rotas','count','int'],['Cidades atendidas','cityCount','int'],['Entregas','deliveries','int'],['Peso transportado','weight','kg'],
+  ['Rotas','count','int'],['Entregas','deliveries','int'],['Peso transportado','weight','kg'],
   ['Valor mercadoria','goods','money'],['Frete a pagar','freight','money'],['Pedágios','toll','money'],['Complementos','comp','money'],
-  ['Total a pagar','total','money'],['Receita bruta','revenue','money'],
+  ['Total a pagar','total','money'],['Desp. administrativas','adminCost','money'],['Desp. operacionais','operatingCost','money'],['Receita bruta','revenue','money'],
   ['ICMS','icms','money'],
-  ['Averbação','aver','money'],['Desp. administrativas','adminCost','money'],['Emissão CT-e','cteCost','money'],
+  ['Averbação','aver','money'],['Emissão CT-e','cteCost','money'],
   ['Margem estimada','margin','money'],['Margem estimada %','marginPct','pct']
  ];
  const sum=key=>rows.reduce((n,r)=>n+(Number(r[key])||0),0);
@@ -498,7 +499,7 @@ function billingSummaryRender(rows){
  for(const [label,key,type] of fields){
   const card=document.createElement('div');const small=document.createElement('small');small.textContent=label;
   const strong=document.createElement('strong');strong.textContent=fmt(key,type);
-  const expenseKeys=['freight','toll','comp','total','adminCost'];
+  const expenseKeys=['freight','toll','comp','total','adminCost','operatingCost'];
   const deductionKeys=['icms','aver','cteCost'];
   if(expenseKeys.includes(key))card.classList.add('billing-summary-expense');
   else if(deductionKeys.includes(key))card.classList.add('billing-summary-deduction');
@@ -509,8 +510,8 @@ function billingSummaryRender(rows){
   }else card.classList.add('billing-summary-neutral');
   card.append(small,strong);root.append(card);
  }
- const pending=rows.filter(r=>r.toll==null||r.freight==null||r.revenue==null||r.totalTaxes==null||r.aver==null||r.adminCost==null||r.cteCost==null).length;
- const warning=document.createElement('p');warning.className='billing-summary-warning';warning.textContent='Resumo de todas as rotas filtradas (não apenas da página). '+(pending?pending+' rota(s) com valores pendentes: totais financeiros parciais. ':'')+'Margem gerencial estimada, sem despesas operacionais ainda parametrizadas.';
+ const pending=rows.filter(r=>r.toll==null||r.freight==null||r.revenue==null||r.totalTaxes==null||r.aver==null||r.adminCost==null||r.operatingCost==null||r.cteCost==null).length;
+ const warning=document.createElement('p');warning.className='billing-summary-warning';warning.textContent='Resumo de todas as rotas filtradas (não apenas da página). '+(pending?pending+' rota(s) com valores pendentes: totais financeiros parciais. ':'')+'Margem gerencial estimada. Os valores ainda não estão congelados por quitação.';
  root.append(warning);
 }
 function billingStyleMargin(tr,margin,revenue){
@@ -582,6 +583,7 @@ async function loadBilling(){
   const otherTaxRate=financeRate('OUTROS_TRIBUTOS',dateKey);
   const adminRate=billingCostRate('DESP_ADMIN',dateKey);
   const cteUnit=billingCostRate('EMISSAO_CTE',dateKey);
+  const operatingRate=billingCostRate('DESP_OPER',dateKey);
   const goods=invoiceValues.get(plan)?.sum??null;
   const icms=revenue==null||icmsRate==null?null:revenue*icmsRate/100;
   const aver=goods==null||averRate==null?null:goods*averRate/100;
@@ -590,15 +592,15 @@ async function loadBilling(){
   const adminCost=revenue==null||adminRate==null?null:revenue*adminRate/100;
   const invoiceCount=invoiceKeys.get(plan)?.size??0;
   const cteCost=cteUnit==null||!invoiceCount?null:cteUnit*invoiceCount;
-  const operatingCost=null; // Sem cadastro de custos operacionais nesta etapa.
+  const operatingCost=revenue==null||operatingRate==null?null:revenue*operatingRate/100;
   const advance=freight==null||toll==null?null:(freight+Number(comp.amount||0))*0.5+toll;
   const total=freight==null||toll==null?null:freight+toll+Number(comp.amount||0);
-  const margin=revenue==null||total==null||totalTaxes==null||aver==null||adminCost==null||cteCost==null?null:revenue-total-totalTaxes-aver-adminCost-cteCost;
+  const margin=revenue==null||total==null||totalTaxes==null||aver==null||adminCost==null||operatingCost==null||cteCost==null?null:revenue-total-totalTaxes-aver-adminCost-operatingCost-cteCost;
   const marginPct=margin==null||revenue===0?null:margin/revenue*100;
-  result.push([plan,billingBR(dateKey),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingKg(weight),billingMoney(invoiceValues.get(plan)?.sum??null),deliveries,r.driver_name||'—',r.plate||'—',embarkedProfile||'Não identificado',billingMoney(freight),toll==null?'Cadastrar pedágio':billingMoney(toll),billingMoney(comp.amount),billingMoney(advance),billingMoney(total),billingMoney(revenue),billingMoney(icms),billingMoney(otherTaxes),billingMoney(totalTaxes),billingMoney(aver),'A parametrizar',billingMoney(adminCost),billingMoney(cteCost),billingMoney(margin),marginPct==null?'Pendente':marginPct.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%']);
-  metadata.push({id,freight,toll,plan,city:decisive?.routeCity||'',details,contractedProfile,embarkedProfile,revenue,totalTaxes,aver,adminCost,cteCost});
+  result.push([plan,billingBR(dateKey),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingKg(weight),billingMoney(invoiceValues.get(plan)?.sum??null),deliveries,r.driver_name||'—',r.plate||'—',embarkedProfile||'Não identificado',billingMoney(freight),toll==null?'Cadastrar pedágio':billingMoney(toll),billingMoney(comp.amount),billingMoney(advance),billingMoney(total),billingMoney(revenue),billingMoney(icms),billingMoney(otherTaxes),billingMoney(totalTaxes),billingMoney(aver),billingMoney(operatingCost),billingMoney(adminCost),billingMoney(cteCost),billingMoney(margin),marginPct==null?'Pendente':marginPct.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%']);
+  metadata.push({id,freight,toll,plan,city:decisive?.routeCity||'',details,contractedProfile,embarkedProfile,revenue,totalTaxes,aver,adminCost,operatingCost,cteCost});
   filterFacts.push({driver:String(r.driver_name||''),year:Number(String(dateKey).slice(0,4)),month:Number(String(dateKey).slice(5,7)),day:Number(String(dateKey).slice(8,10)),profile:prof,margin});
-  summaryRows.push({id,plan,cityCount:cityList.length,weight,deliveries,goods,freight,toll,comp:Number(comp.amount||0),advance,total,revenue,icms,otherTaxes,totalTaxes,aver,adminCost,cteCost,margin});
+  summaryRows.push({id,plan,cityCount:cityList.length,weight,deliveries,goods,freight,toll,comp:Number(comp.amount||0),advance,total,revenue,icms,otherTaxes,totalTaxes,aver,adminCost,operatingCost,cteCost,margin});
  }
  // Preencher opções usando todas as rotas importadas, preservando seleções.
  const updateOptions=(id,values,format)=>{const el=$(id),selected=el.value;const previous=[...el.options].slice(0,1).map(o=>({value:o.value,text:o.textContent}));el.replaceChildren();for(const o of previous){const opt=document.createElement('option');opt.value=o.value;opt.textContent=o.text;el.append(opt);}for(const v of values){const opt=document.createElement('option');opt.value=String(v);opt.textContent=format?format(v):String(v);el.append(opt);}el.value=[...el.options].some(o=>o.value===selected)?selected:'';};
@@ -615,9 +617,9 @@ async function loadBilling(){
  $('billing-table').querySelectorAll('tbody tr').forEach((tr,i)=>{const meta=visibleMetadata[i],c=billingComplements.get(meta.id)||{amount:0,reason:''};
   const amount=document.createElement('input');amount.type='number';amount.min='0';amount.step='0.01';amount.className='billing-comp-input';amount.value=c.amount||'';amount.placeholder='0,00';amount.title='Complemento simulado; ainda não gravado no banco';
   const reason=document.createElement('select');reason.className='billing-reason-input';for(const [value,label] of [['','Selecione o motivo'],...billingReasonOptions.map(x=>[x,x])]){const option=document.createElement('option');option.value=value;option.textContent=label;reason.append(option);}reason.value=billingReasonOptions.includes(c.reason)?c.reason:'';reason.title='Motivo do complemento';reason.disabled=!(Number(c.amount)>0);
-  const update=()=>{const val=Number(amount.value);if(!Number.isFinite(val)||val<0){amount.setCustomValidity('Informe valor válido');return;}amount.setCustomValidity('');reason.disabled=val<=0;if(val<=0)reason.value='';reason.required=val>0;reason.classList.toggle('billing-reason-required',val>0&&!reason.value);billingComplements.set(meta.id,{amount:val,reason:reason.value.trim()});const sr=summaryRows.find(x=>x.id===meta.id);if(sr){sr.comp=val;sr.advance=sr.freight==null||sr.toll==null?null:(sr.freight+val)*0.5+sr.toll;sr.total=sr.freight==null||sr.toll==null?null:sr.freight+sr.toll+val;sr.margin=sr.revenue==null||sr.total==null||sr.totalTaxes==null||sr.aver==null||sr.adminCost==null||sr.cteCost==null?null:sr.revenue-sr.total-sr.totalTaxes-sr.aver-sr.adminCost-sr.cteCost;billingSummaryRender(filteredSummary);if($('billing-margin').value){billingPage=0;loadBilling().catch(e=>message(e.message,true));}}tr.children[14].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney((meta.freight+val)*0.5+meta.toll);tr.children[15].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney(meta.freight+meta.toll+val);
+  const update=()=>{const val=Number(amount.value);if(!Number.isFinite(val)||val<0){amount.setCustomValidity('Informe valor válido');return;}amount.setCustomValidity('');reason.disabled=val<=0;if(val<=0)reason.value='';reason.required=val>0;reason.classList.toggle('billing-reason-required',val>0&&!reason.value);billingComplements.set(meta.id,{amount:val,reason:reason.value.trim()});const sr=summaryRows.find(x=>x.id===meta.id);if(sr){sr.comp=val;sr.advance=sr.freight==null||sr.toll==null?null:(sr.freight+val)*0.5+sr.toll;sr.total=sr.freight==null||sr.toll==null?null:sr.freight+sr.toll+val;sr.margin=sr.revenue==null||sr.total==null||sr.totalTaxes==null||sr.aver==null||sr.adminCost==null||sr.operatingCost==null||sr.cteCost==null?null:sr.revenue-sr.total-sr.totalTaxes-sr.aver-sr.adminCost-sr.operatingCost-sr.cteCost;billingSummaryRender(filteredSummary);if($('billing-margin').value){billingPage=0;loadBilling().catch(e=>message(e.message,true));}}tr.children[14].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney((meta.freight+val)*0.5+meta.toll);tr.children[15].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney(meta.freight+meta.toll+val);
    const totalCost=meta.freight==null||meta.toll==null?null:meta.freight+meta.toll+val;
-   const margin=meta.revenue==null||totalCost==null||meta.totalTaxes==null||meta.aver==null||meta.adminCost==null||meta.cteCost==null?null:meta.revenue-totalCost-meta.totalTaxes-meta.aver-meta.adminCost-meta.cteCost;
+   const margin=meta.revenue==null||totalCost==null||meta.totalTaxes==null||meta.aver==null||meta.adminCost==null||meta.operatingCost==null||meta.cteCost==null?null:meta.revenue-totalCost-meta.totalTaxes-meta.aver-meta.adminCost-meta.operatingCost-meta.cteCost;
    tr.children[24].textContent=billingMoney(margin);tr.children[25].textContent=margin==null||!meta.revenue?'Pendente':(margin/meta.revenue*100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
    billingStyleMargin(tr,margin,meta.revenue);
   };
@@ -625,7 +627,7 @@ async function loadBilling(){
   tr.children[13].textContent='';const compInline=document.createElement('div');compInline.className='billing-comp-inline';compInline.append(amount,reason);tr.children[13].append(compInline);
   if(meta.city){const cell=tr.children[3];cell.textContent='';const cityButton=document.createElement('button');cityButton.type='button';cityButton.className='billing-city-link';cityButton.textContent=meta.city;cityButton.title='Consultar cidades, distâncias e faixas do plano';cityButton.onclick=()=>billingCityDetails(meta.plan,meta.details);cell.append(cityButton);}
   if(meta.toll==null&&meta.city){const td=tr.children[12];td.textContent='';const btn=document.createElement('button');btn.type='button';btn.className='billing-register-toll';btn.textContent='+ Cadastrar pedágio';btn.onclick=()=>billingOpenToll(meta.city,meta.plan);td.append(btn);}
-  const initialMargin=meta.revenue==null||meta.freight==null||meta.toll==null||meta.totalTaxes==null||meta.aver==null||meta.adminCost==null||meta.cteCost==null?null:meta.revenue-meta.freight-meta.toll-Number(c.amount||0)-meta.totalTaxes-meta.aver-meta.adminCost-meta.cteCost;
+  const initialMargin=meta.revenue==null||meta.freight==null||meta.toll==null||meta.totalTaxes==null||meta.aver==null||meta.adminCost==null||meta.operatingCost==null||meta.cteCost==null?null:meta.revenue-meta.freight-meta.toll-Number(c.amount||0)-meta.totalTaxes-meta.aver-meta.adminCost-meta.operatingCost-meta.cteCost;
   billingStyleMargin(tr,initialMargin,meta.revenue);
   const profileCell=tr.children[10];profileCell.title='Perfil contratado: '+meta.contractedProfile+' · Perfil embarcado: '+(meta.embarkedProfile||'não identificado');
 
