@@ -137,3 +137,13 @@
 .billing-filter-grid{display:grid!important;grid-template-columns:minmax(170px,1.5fr) repeat(3,minmax(105px,1fr)) minmax(130px,1fr) minmax(130px,1fr) auto;gap:10px;align-items:end}
 .billing-filter-grid>div{min-width:0}.billing-filter-grid select{width:100%;min-width:0}.billing-filter-actions{display:flex;gap:6px;align-items:end}.billing-filter-actions label{display:none}.billing-filter-actions button{white-space:nowrap}
 @media(max-width:1250px){.billing-filter-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:650px){.billing-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.billing-filter-grid>div:first-child{grid-column:1/-1}}
+
+/* V2.0.5 — edição de parâmetros diretamente na tabela */
+.finance-edit-btn{background:transparent!important;border:1px solid #d9e4ef!important;color:#1b527d!important;padding:5px 10px!important;font-size:11px!important;border-radius:6px!important;box-shadow:none!important}
+.finance-edit-btn:hover{background:#edf5fb!important}
+.finance-inline-edit td{background:#f5f9fd!important;padding:12px!important}
+.finance-inline-panel{display:flex;align-items:center;flex-wrap:wrap;gap:9px}
+.finance-inline-panel span:first-child{font-size:12px;color:#264865;margin-right:auto}
+.finance-inline-panel input{width:145px;max-width:100%;font-size:12px;padding:8px;border:1px solid #d5e1ed;border-radius:6px}
+.finance-inline-panel button{font-size:11px;padding:8px 12px}
+.finance-inline-panel .billing-toll-error{flex-basis:100%;margin:0;font-size:11px}

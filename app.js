@@ -439,6 +439,34 @@ function financeRate(key,routeDate){
  return valid.length?Number(valid[0].rate_percent):null;
 }
 function financePercent(v){return v==null?'Não configurado':Number(v).toLocaleString('pt-BR',{maximumFractionDigits:5})+'%';}
+async function financeSaveParameter(code, rate, date){
+ if(code==='DESP_OPER')return rpc('pcd_billing_operating_parameters_save',{p_value:rate,p_effective_from:date});
+ if(['DESP_ADMIN','EMISSAO_CTE'].includes(code))return rpc('pcd_billing_cost_parameters_save',{p_code:code,p_value:rate,p_effective_from:date});
+ return rpc('pcd_finance_parameters_save',{p_code:code,p_rate_percent:rate,p_effective_from:date});
+}
+function financeInlineEdit(tr,code,current){
+ if(tr.nextElementSibling?.classList.contains('finance-inline-edit')){tr.nextElementSibling.remove();return;}
+ document.querySelectorAll('.finance-inline-edit').forEach(el=>el.remove());
+ const edit=document.createElement('tr');edit.className='finance-inline-edit';
+ const cell=document.createElement('td');cell.colSpan=5;
+ const panel=document.createElement('div');panel.className='finance-inline-panel';
+ const title=document.createElement('span');title.textContent='Nova vigência · '+tr.firstElementChild.textContent;
+ const rate=document.createElement('input');rate.type='text';rate.inputMode='decimal';rate.placeholder=code==='EMISSAO_CTE'?'Valor em R$':'Taxa em %';rate.value=current==null?'':String(current).replace('.',',');rate.setAttribute('aria-label','Novo valor');
+ const date=document.createElement('input');date.type='date';date.value=today();date.min=today();date.setAttribute('aria-label','Início da vigência');
+ const save=document.createElement('button');save.type='button';save.textContent='Salvar';
+ const cancel=document.createElement('button');cancel.type='button';cancel.className='secondary';cancel.textContent='Cancelar';cancel.onclick=()=>edit.remove();
+ const error=document.createElement('span');error.className='billing-toll-error';error.setAttribute('role','alert');
+ save.onclick=async()=>{
+  const raw=rate.value.trim().replace(',','.');const value=Number(raw);
+  if(!raw||!Number.isFinite(value)||value<0||(code!=='EMISSAO_CTE'&&value>100)){error.textContent='Informe um valor válido.';return;}
+  if(!date.value||date.value<today()){error.textContent='A vigência deve ser hoje ou uma data futura.';return;}
+  if(!confirm('Registrar nova vigência de '+(code==='EMISSAO_CTE'?'R$ ':'')+rate.value+(code==='EMISSAO_CTE'?'':'%')+' em '+billingBR(date.value)+'? O histórico será preservado.'))return;
+  save.disabled=true;error.textContent='';
+  try{await financeSaveParameter(code,value,date.value);await loadFinanceParams();message('Nova vigência registrada com sucesso.');}
+  catch(e){error.textContent=e.message;save.disabled=false;}
+ };
+ panel.append(title,rate,date,save,cancel,error);cell.append(panel);edit.append(cell);tr.after(edit);rate.focus();
+}
 async function loadFinanceParams(){
  const data=await financeGetParams();
  const costData=await billingGetCosts();
@@ -450,13 +478,14 @@ async function loadFinanceParams(){
   const active=history.find(x=>x.effective_from<=today());
   const tr=document.createElement('tr');
   for(const val of [names[code],active?financePercent(active.rate_percent):'Não configurado',basis[code],active?billingBR(active.effective_from):'—']){const td=document.createElement('td');td.textContent=val;tr.append(td);}
+  const action=document.createElement('td');const editBtn=document.createElement('button');editBtn.type='button';editBtn.className='finance-edit-btn';editBtn.textContent='Editar';editBtn.onclick=()=>financeInlineEdit(tr,code,active?.rate_percent??null);action.append(editBtn);tr.append(action);
   tbody.append(tr);
  }
  for(const [code,name,base,unit] of [['DESP_ADMIN','Despesas administrativas','Receita bruta','%'],['DESP_OPER','Despesas operacionais','Receita bruta','%'],['EMISSAO_CTE','Emissão CT-e','Por nota fiscal única','R$']]){
   const history=costData.filter(x=>x.parameter_code===code).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)));
   const active=history.find(x=>x.effective_from<=today());
   const tr=document.createElement('tr');
-  for(const val of [name,active?(unit==='%'?financePercent(active.value):billingMoney(active.value)):'Não configurado',base,active?billingBR(active.effective_from):'—']){const td=document.createElement('td');td.textContent=val;tr.append(td);}tbody.append(tr);
+  for(const val of [name,active?(unit==='%'?financePercent(active.value):billingMoney(active.value)):'Não configurado',base,active?billingBR(active.effective_from):'—']){const td=document.createElement('td');td.textContent=val;tr.append(td);}const action=document.createElement('td');const editBtn=document.createElement('button');editBtn.type='button';editBtn.className='finance-edit-btn';editBtn.textContent='Editar';editBtn.onclick=()=>financeInlineEdit(tr,code,active?.value??null);action.append(editBtn);tr.append(action);tbody.append(tr);
  }
  const historyBody=$('finance-history-body');historyBody.textContent='';
  for(const x of data.slice().sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)))){
@@ -475,7 +504,7 @@ $('finance-save').onclick=async()=>{
  if(!date||date<today()){$('finance-error').textContent='A vigência deve ser hoje ou uma data futura.';return;}
  if(!confirm('Cadastrar novo valor de '+rate+(code==='EMISSAO_CTE'?' R$':'%')+' para '+code+' a partir de '+billingBR(date)+'? O histórico será preservado.'))return;
  const button=$('finance-save');button.disabled=true;$('finance-error').textContent='';
- try{if(code==='DESP_OPER')await rpc('pcd_billing_operating_parameters_save',{p_value:rate,p_effective_from:date});else if(['DESP_ADMIN','EMISSAO_CTE'].includes(code))await rpc('pcd_billing_cost_parameters_save',{p_code:code,p_value:rate,p_effective_from:date});else await rpc('pcd_finance_parameters_save',{p_code:code,p_rate_percent:rate,p_effective_from:date});await loadFinanceParams();$('finance-rate').value='';message('Parâmetro cadastrado com sucesso.');}
+ try{await financeSaveParameter(code,rate,date);await loadFinanceParams();$('finance-rate').value='';message('Parâmetro cadastrado com sucesso.');}
  catch(e){$('finance-error').textContent=e.message;}finally{button.disabled=false;}
 };
 function billingSummaryRender(rows){
