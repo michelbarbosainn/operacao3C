@@ -53,3 +53,9 @@
 .occ-primary-send{background:#FFC658!important;color:#002F6C!important;border:1px solid #E7AC30!important;box-shadow:0 2px 6px rgba(0,47,108,.12)}
 .occ-primary-send:hover:not(:disabled){background:#F5B83D!important;filter:none}
 .occ-primary-send:focus-visible{outline:3px solid #002F6C;outline-offset:2px}
+
+/* V9.7 - indicadores de ocorrencias */
+.badge.oc-open{background:#e2f7e9!important;color:#176b3c!important;border:1px solid #9bdfb5}
+.badge.oc-closed{background:#fde7e7!important;color:#a62b2b!important;border:1px solid #f3b3b3}
+.badge.oc-draft{background:#fff3d4!important;color:#8c5b05!important;border:1px solid #f4d48a}
+.badge.oc-cancelled{background:#e9edf3!important;color:#516174!important;border:1px solid #cbd4e1}
