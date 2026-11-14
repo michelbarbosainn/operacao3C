@@ -14,7 +14,7 @@ $('google-login').onclick=async()=>{try{if(!db)throw Error('Supabase não config
 $('logout').onclick=async()=>{await db.auth.signOut();location.reload();};
 
 async function refreshMetrics(){const a=await rpc('pcd_dashboard');$('metric-routes').textContent=a.total_routes;const day=$('availability-date').value||today();drivers=await rpc('pcd_v8_drivers',{p_date:day});$('metric-drivers').textContent=drivers.length;$('metric-available').textContent=drivers.filter(d=>d.day_status==='DISPONIVEL').length;$('metric-assigned').textContent=drivers.filter(d=>d.day_status==='PROGRAMADO').length;}
-async function showTab(t){tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','availability','sac','occurrences','recipients','reasons','invoices-base'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();if(t==='invoices-base')await loadInvoiceBase();}catch(e){message(e.message,true);}}
+async function showTab(t){tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','availability','sac','occurrences','recipients','reasons'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='billing')await loadBilling();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>showTab(b.dataset.go));
 $('availability-date').value=today();
@@ -211,14 +211,15 @@ async function manageOccurrence(occId,route){
   };
  }catch(e){message(e.message,true);}
 }
-// Seções de importação agora usam details/summary nativos.
+function switchImport(kind){$('import-routes-area').classList.toggle('hidden',kind!=='routes');$('panel-invoices').classList.toggle('hidden',kind!=='invoices');$('switch-routes').classList.toggle('active',kind==='routes');$('switch-invoices').classList.toggle('active',kind==='invoices');}
+$('switch-routes').onclick=()=>switchImport('routes');$('switch-invoices').onclick=()=>switchImport('invoices');
 function localStamp(v){return v?new Date(v).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'}):'Sem registro';}
 // Rodape compacto: os horarios de notas/rotas sao os ultimos eventos informados pelo RPC.
 // Para o banco, o horario corresponde a verificacao de conectividade, nao a ultima gravacao.
 function healthLine(id,label,date,kind='event'){
  const el=$(id);if(!el)return;
  const valid=date && !Number.isNaN(new Date(date).getTime());
- el.innerHTML=`<span class="health-label">${esc(label)}</span><span class="health-time">${valid?esc(localStamp(date)):'—'}</span>`;
+ el.textContent=`${label} ${valid?'✓':'—'} ${valid?localStamp(date):'Sem registro'}`;
  el.classList.toggle('health-ok',Boolean(valid));
  el.title=kind==='check'?'Ultima verificacao bem-sucedida da conexao':valid?'Ultimo registro conhecido':'Nenhum registro disponivel';
 }
@@ -231,7 +232,7 @@ async function refreshGmailHealth(){
    .sort((a,b)=>new Date(b.imported_at)-new Date(a.imported_at))[0];
   healthLine('health-gmail','IMPORTAÇÃO DE NOTAS',latest?.imported_at);
  }catch(e){
-  healthLine('health-gmail','IMPORTAÇÃO DE NOTAS',null);
+  el.textContent='IMPORTAÇÃO DE NOTAS — Indisponível';el.classList.remove('health-ok');
   el.title='Histórico Gmail indisponível para esta sessão';
  }
 }
@@ -241,8 +242,8 @@ async function refreshHealth(){
   healthLine('health-db','BANCO DE DADOS',new Date().toISOString(),'check');
   healthLine('health-routes','IMPORTAÇÃO DE ROTAS',h.last_routes);
  }catch(e){
-  healthLine('health-db','BANCO DE DADOS',null);
-  healthLine('health-routes','IMPORTAÇÃO DE ROTAS',null);
+  $('health-db').textContent='BANCO DE DADOS ✕ Falha';$('health-db').classList.remove('health-ok');
+  $('health-routes').textContent='IMPORTAÇÃO DE ROTAS — Indisponível';
   console.warn('Monitoramento:',e.message);
  }
  await refreshGmailHealth();
@@ -375,30 +376,42 @@ $('gmail-apply').onclick=async()=>{
 };
 $('gmail-history').onclick=async()=>{try{gmailBusySet(true);gmailStatus('Consultando histórico...');const r=await gmailAdmin('HISTORICO');$('gmail-operation-results').innerHTML=table(['Importado em','Arquivo','Linhas','Inseridas','Atualizadas','Sem alteração'],(r.items||[]).map(x=>[new Date(x.imported_at).toLocaleString('pt-BR'),x.filename,x.row_count,x.inserted_count,x.updated_count,x.unchanged_count]));gmailStatus(`${r.items?.length||0} anexo(s) no histórico. Nenhum dado foi alterado.`);}catch(e){gmailStatus('Erro: '+e.message);message(e.message,true);}finally{gmailBusySet(false);}};
 
-// Base fiscal: filtros e paginação no Supabase, respeitando RLS.
-const baseColumns=[['invoice_number','Nota fiscal'],['invoiced_on','Faturamento'],['customer_code','Código cliente'],['customer_name','Cliente'],['plan_number','Ordem frete'],['city','Cidade'],['gross_weight','Peso bruto'],['invoice_value','Valor NF-e'],['occurrence_flag','Ocorrência'],['occurrence_notes','Observações'],['occurrence_changed_by','Alterado por'],['occurrence_changed_at','Alterado em'],['import_batch_id','Lote'],['imported_by','Importado por'],['created_at','Criado em'],['id','ID']];
-let baseFilters={},baseSort='created_at',baseAscending=false,basePage=0,baseTotal=0,baseCurrent=[];
-const baseEsc=v=>esc(v==null?'':typeof v==='object'?JSON.stringify(v):String(v));
-function baseCell(v,key){if(v==null)return '—';if(key==='invoice_value')return Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});if(key==='gross_weight')return Number(v).toLocaleString('pt-BR');if(key==='invoiced_on')return /^\d{4}-\d{2}-\d{2}/.test(v)?v.slice(8,10)+'/'+v.slice(5,7)+'/'+v.slice(0,4):v;if(key.endsWith('_at')&&typeof v==='string')return new Date(v).toLocaleString('pt-BR');return String(v);}
-async function loadInvoiceBase(){
- const status=$('base-status');status.textContent='Consultando notas...';
- try{
-  const size=Number($('base-size').value),term=$('base-search').value.trim();
-  let q=db.from('pcd_v8_invoices').select('*',{count:'exact'});
-  if(term){const safe=term.replace(/[(),]/g,' ').trim();if(safe)q=q.or(['invoice_number','customer_code','customer_name','plan_number','city'].map(k=>`${k}.ilike.%${safe}%`).join(','));}
-  for(const [key,val] of Object.entries(baseFilters)){if(!val)continue;if(['invoice_value','gross_weight','id'].includes(key)){const n=Number(val.replace(',','.'));if(Number.isFinite(n))q=q.eq(key,n);else continue;}else if(['invoiced_on','created_at','occurrence_changed_at'].includes(key)){q=q.gte(key,val);}else if(key==='occurrence_flag'){q=q.eq(key,/^(true|sim|1)$/i.test(val));}else q=q.ilike(key,`%${val.replace(/[%,()]/g,' ')}%`);}
-  const {data,error,count}=await q.order(baseSort,{ascending:baseAscending}).range(basePage*size,(basePage+1)*size-1);
-  if(error)throw error;baseCurrent=data||[];baseTotal=count||0;
-  const tbl=$('base-table');tbl.innerHTML='<thead><tr>'+baseColumns.map(([key,label])=>`<th><button class="base-sort" data-sort="${key}">${esc(label)} ${baseSort===key?(baseAscending?'▲':'▼'):'↕'}</button></th>`).join('')+'</tr><tr>'+baseColumns.map(([key])=>`<th><input class="base-col-filter" data-filter="${key}" aria-label="Filtrar ${key}" placeholder="Filtrar" value="${baseEsc(baseFilters[key]||'')}"/></th>`).join('')+'</tr></thead><tbody>'+baseCurrent.map(r=>'<tr>'+baseColumns.map(([key])=>`<td title="${baseEsc(r[key])}">${baseEsc(baseCell(r[key],key))}</td>`).join('')+'</tr>').join('')+'</tbody>';
-  tbl.querySelectorAll('[data-sort]').forEach(b=>b.onclick=()=>{baseAscending=baseSort===b.dataset.sort?!baseAscending:true;baseSort=b.dataset.sort;loadInvoiceBase().catch(console.warn);});
-  tbl.querySelectorAll('[data-filter]').forEach(el=>el.onchange=()=>{baseFilters[el.dataset.filter]=el.value.trim();basePage=0;loadInvoiceBase().catch(console.warn);});
-  $('base-page').textContent=`${baseTotal.toLocaleString('pt-BR')} notas · página ${basePage+1} de ${Math.max(1,Math.ceil(baseTotal/size))}`;
-  $('base-prev').disabled=basePage===0;$('base-next').disabled=(basePage+1)*size>=baseTotal;
-  status.textContent=`${baseCurrent.length} registro(s) exibidos. Exportação limitada à página atual.`;
- }catch(e){status.textContent='Falha na consulta: '+e.message;}
+
+// INNOVA OC Faturamento V1 - prévia SOMENTE LEITURA.
+let billingPage=0,billingTotal=0;
+const billingMoney=n=>n==null?'—':Number(n).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+function billingNorm(v){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();}
+async function billingQuery(tableName,apply){let q=db.from(tableName).select('*');return await apply(q);}
+async function loadBilling(){
+ const search=$('billing-search').value.trim(),date=$('billing-date').value||null;
+ const a=await rpc('pcd_v8_routes',{p_search:search,p_date:date,p_limit:50,p_offset:billingPage*50});
+ billingTotal=a.total||0;const data=a.rows||[];$('billing-total').textContent=billingTotal;
+ const cities=[...new Set(data.map(r=>String(r.city||'').trim()).filter(Boolean))];
+ const profiles=[...new Set(data.map(r=>String(r.vehicle_profile||'').trim()).filter(Boolean))];
+ const cityRates=[],tollRates=[],exceptions=[];
+ // Supabase 'in' filters use raw city strings; secondary normalized match handles case and accents.
+ if(cities.length){const {data:rr,error}=await db.from('pcd_billing_city_rates').select('city,band,vehicle_profile,freight_payable,distance_km').in('city',cities).limit(3000);if(error)throw error;cityRates.push(...rr);const {data:tt,error:te}=await db.from('pcd_billing_tolls').select('city,amount').in('city',cities).limit(1000);if(te)throw te;tollRates.push(...tt);}
+ const supplier=$('billing-supplier').value.trim();
+ if(supplier){const {data:ee,error}=await db.from('pcd_billing_supplier_rates').select('supplier_name,vehicle_profile,band,amount,effective_from,effective_until').eq('supplier_name',supplier).limit(500);if(error)throw error;exceptions.push(...ee);}
+ $('billing-rates-status').textContent=cityRates.length?'Disponível':'Sem correspondência';$('billing-tolls-status').textContent=tollRates.length?'Disponível':'Sem correspondência';
+ const grouped=new Map();for(const r of data){const key=String(r.plan_number)+'|'+String(r.route_date||r.loading_on||'')+'|'+String(r.vehicle_profile||'');if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(r);}
+ const result=[];for(const group of grouped.values()){
+  const r=group[0],cityList=[...new Set(group.map(x=>String(x.city||'').trim()).filter(Boolean))],prof=billingNorm(r.vehicle_profile);
+  const matched=cityList.flatMap(city=>cityRates.filter(x=>billingNorm(x.city)===billingNorm(city)&&billingNorm(x.vehicle_profile)===prof).map(x=>({...x,routeCity:city})));
+  matched.sort((x,y)=>Number(y.band)-Number(x.band)||Number(y.distance_km||0)-Number(x.distance_km||0));const decisive=matched[0];
+  const dateKey=r.route_date||r.loading_on||'';
+  const override=decisive?exceptions.filter(x=>billingNorm(x.vehicle_profile)===prof&&Number(x.band)===Number(decisive.band)&&(!dateKey||x.effective_from<=dateKey)&&(!x.effective_until||x.effective_until>=dateKey)).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)))[0]:null;
+  const cityTolls=decisive?tollRates.filter(x=>billingNorm(x.city)===billingNorm(decisive.routeCity)):[];
+  const toll=cityTolls.length?cityTolls[0].amount:null;
+  const freight=override?override.amount:decisive?.freight_payable;
+  const note=!decisive?'Cidade/perfil sem tabela':cityTolls.length>1&&new Set(cityTolls.map(x=>Number(x.amount))).size>1?'Pedágios divergentes':!cityTolls.length?'Pedágio sem referência':override?'Exceção fornecedor':'Tabela padrão';
+  result.push([r.plan_number,dateKey,r.driver_name||'—',prof,cityList.join(' · '),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingMoney(freight),billingMoney(toll),freight==null||toll==null?'—':billingMoney(Number(freight)+Number(toll)),note]);
+ }
+ $('billing-table').innerHTML=table(['Plano','Data','Motorista','Perfil','Cidades','Qtd. cidades','Cidade determinante','Faixa','Frete base','Pedágio ref.','Total base','Conferência'],result);
+ $('billing-page').textContent=`${billingTotal} registros operacionais · página ${billingPage+1}`;
+ $('billing-prev').disabled=billingPage===0;$('billing-next').disabled=(billingPage+1)*50>=billingTotal;
 }
-$('base-refresh').onclick=()=>loadInvoiceBase();$('base-size').onchange=()=>{basePage=0;loadInvoiceBase();};
-$('base-search').onchange=()=>{basePage=0;loadInvoiceBase();};
-$('base-clear').onclick=()=>{baseFilters={};basePage=0;$('base-search').value='';loadInvoiceBase();};
-$('base-prev').onclick=()=>{basePage--;loadInvoiceBase();};$('base-next').onclick=()=>{basePage++;loadInvoiceBase();};
-$('base-export').onclick=()=>{if(!baseCurrent.length)return message('Não há registros nesta página para exportar.',true);const cols=baseColumns.map(x=>x[0]);const csv=[cols.join(';'),...baseCurrent.map(r=>cols.map(k=>'"'+String(r[k]??'').replace(/"/g,'""')+'"').join(';'))].join('\r\n');const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='innova_notas_pagina_'+(basePage+1)+'.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+$('billing-filter').onclick=()=>{billingPage=0;loadBilling().catch(e=>message(e.message,true));};
+$('billing-refresh').onclick=()=>loadBilling().catch(e=>message(e.message,true));
+$('billing-prev').onclick=()=>{billingPage=Math.max(0,billingPage-1);loadBilling().catch(e=>message(e.message,true));};
+$('billing-next').onclick=()=>{billingPage++;loadBilling().catch(e=>message(e.message,true));};
