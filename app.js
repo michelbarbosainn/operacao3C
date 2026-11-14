@@ -608,21 +608,77 @@ $('payment-print').onclick=async()=>{
  const rows=selected.map(el=>paymentCandidates.find(r=>payKey(r)===el.dataset.id)).filter(Boolean);
  if(!rows.length){error.textContent='Não foram encontradas rotas selecionadas.';return;}
  const doc=new api.jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
- if(typeof doc.autoTable!=='function'){error.textContent='Módulo de tabelas PDF indisponível. Recarregue a página.';return;}
- const money=v=>payCurrency(v==null?0:v);
- const w=297, navy=[5,43,84],light=[220,236,246];
- doc.setFillColor(...navy);doc.rect(10,10,w-20,21,'F');doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(15);doc.text('RELATORIO DE TRANSPORTE',16,19);
- doc.setFontSize(9);doc.setTextColor(255,209,100);doc.text(paymentMode==='ADVANCE'?'EXTRATO DE ADIANTAMENTO':'EXTRATO DE QUITACAO',16,26);
- doc.setFillColor(...light);doc.rect(10,34,w-20,14,'F');doc.setTextColor(...navy);doc.setFont('helvetica','bold');doc.setFontSize(9);
- doc.text('MOTORISTA: '+driver,14,40);doc.text('REFERENCIA: '+billingBR($('payment-date').value),164,40);doc.text('ROTAS: '+rows.length,254,40);
- const body=rows.map(r=>{const st=payRowState(r);return [billingBR(r.date),String(r.plan||'—'),String(r.city||'—'),money(r.freight),money(r.toll),money(r.comp),money(st.due),money(st.paid),money(st.balance)];});
- const total=rows.reduce((n,r)=>n+Number(payRowState(r).due||0),0);
- const paid=rows.reduce((n,r)=>n+Number(payRowState(r).paid||0),0);
- const balance=rows.reduce((n,r)=>n+Number(payRowState(r).balance||0),0);
- doc.autoTable({startY:51,margin:{left:10,right:10,bottom:20},head:[['DATA ROTA','PLANO','CIDADE REFERENCIA','FRETE','PEDAGIO','COMPLEMENTO','TOTAL','ADIANT. PAGO','SALDO']],body,theme:'striped',styles:{font:'helvetica',fontSize:7.5,cellPadding:2.5,textColor:[28,51,76],overflow:'linebreak'},headStyles:{fillColor:light,textColor:navy,fontStyle:'bold'},alternateRowStyles:{fillColor:[245,248,251]},columnStyles:{2:{cellWidth:45}},didDrawPage:()=>{doc.setFontSize(7);doc.setTextColor(110,125,140);doc.text('INNOVA SOLUCOES LOGISTICAS  |  Extrato para conferencia - nao comprova pagamento',10,202);doc.text('Pagina '+doc.internal.getCurrentPageInfo().pageNumber,275,202,{align:'right'});}});
- let y=doc.lastAutoTable.finalY+7;if(y>175){doc.addPage();y=20;}
- const x=177;const lines=[['TOTAL DO FECHAMENTO',money(total)],['ADIANTAMENTOS PAGOS',money(paid)],['SALDO PENDENTE',money(balance)]];
- lines.forEach(([label,value],i)=>{doc.setFillColor(...(i===2?[255,211,111]:i===0?navy:[231,240,247]));doc.rect(x,y+i*9,110,9,'F');doc.setFont('helvetica','bold');doc.setFontSize(8.5);doc.setTextColor(...(i===0?[255,255,255]:navy));doc.text(label,x+4,y+5.8);doc.text(value,x+106,y+5.8,{align:'right'});});
+ if(typeof doc.autoTable!=='function'){error.textContent='Módulo de tabelas PDF indisponível.';return;}
+ const money=v=>payCurrency(Number(v)||0);
+ const navy=[7,43,80],pale=[232,241,247],ink=[32,52,72],gold=[245,185,73];
+ const selectedItems=selected.map(el=>{
+  const r=paymentCandidates.find(x=>payKey(x)===el.dataset.id);
+  const st=payRowState(r);
+  const input=document.querySelector(`#payment-rows .pay-amount[data-id="${el.dataset.id}"]`);
+  return {r,st,amount:Number(input?.value||0)};
+ });
+ if(selectedItems.some(x=>!Number.isFinite(x.amount)||x.amount<=0||x.amount>x.st.balance+0.001)){
+  error.textContent='Revise os valores selecionados antes de emitir o extrato.';return;
+ }
+ const sum=fn=>selectedItems.reduce((n,x)=>n+Number(fn(x)||0),0);
+ const total=sum(x=>x.st.due),paid=sum(x=>x.st.paid),settled=sum(x=>x.st.settled);
+ const previousBalance=sum(x=>x.st.balance),toPay=sum(x=>x.amount),remaining=previousBalance-toPay;
+ const payDate=billingBR($('payment-date').value);
+ const title=paymentMode==='ADVANCE'?'EXTRATO DE ADIANTAMENTO':'EXTRATO DE QUITACAO';
+ const footer=()=>{
+  const count=doc.internal.getNumberOfPages();
+  for(let i=1;i<=count;i++){
+   doc.setPage(i);doc.setDrawColor(215,225,233);doc.line(12,196,285,196);
+   doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(110,125,140);
+   doc.text('INNOVA SOLUCOES LOGISTICAS  |  Simulacao para conferencia - nao comprova pagamento',13,201);
+   doc.text(`Pagina ${i} de ${count}`,284,201,{align:'right'});
+  }
+ };
+ doc.setFillColor(...navy);doc.roundedRect(12,10,273,24,2,2,'F');
+ doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(15);
+ doc.text('INNOVA  |  TRANSPORTES E SOLUCOES LOGISTICAS',18,20);
+ doc.setFontSize(9);doc.setTextColor(...gold);doc.text(title+'  •  PREVISAO / NAO PAGO',18,28);
+ doc.setFillColor(...pale);doc.roundedRect(12,38,273,20,2,2,'F');
+ doc.setFont('helvetica','bold');doc.setTextColor(...navy);doc.setFontSize(9);
+ doc.text('MOTORISTA',17,45);doc.text('DATA PREVISTA',154,45);doc.text('ROTAS',245,45);
+ doc.setFont('helvetica','normal');doc.setFontSize(10);
+ doc.text(String(driver),17,52);doc.text(payDate,154,52);doc.text(String(rows.length),245,52);
+ const body=selectedItems.map(({r,st,amount})=>[
+  billingBR(r.date),String(r.plan||'—'),String(r.city||'—'),money(r.freight),money(r.toll),
+  money(r.comp),money(st.due),money(st.paid+st.settled),money(st.balance),money(amount),money(st.balance-amount)
+ ]);
+ doc.autoTable({
+  startY:64,margin:{left:12,right:12,bottom:33},
+  head:[['DATA ROTA','PLANO','CIDADE','FRETE','PEDAGIO','COMPL.','TOTAL','JA PAGO','SALDO ANTES','A PAGAR','SALDO APOS']],
+  body,theme:'striped',
+  styles:{font:'helvetica',fontSize:7,cellPadding:2.2,textColor:ink,overflow:'linebreak',valign:'middle'},
+  headStyles:{fillColor:navy,textColor:[255,255,255],fontStyle:'bold',fontSize:6.6},
+  alternateRowStyles:{fillColor:[245,249,252]},
+  columnStyles:{0:{cellWidth:21},1:{cellWidth:20},2:{cellWidth:34},3:{cellWidth:23},4:{cellWidth:21},5:{cellWidth:21},6:{cellWidth:24},7:{cellWidth:24},8:{cellWidth:28},9:{cellWidth:28},10:{cellWidth:29}},
+  didParseCell:data=>{if(data.section==='body'&&data.column.index===9){data.cell.styles.fontStyle='bold';data.cell.styles.textColor=navy;}}
+ });
+ let y=doc.lastAutoTable.finalY+8;
+ if(y>153){doc.addPage();y=20;}
+ doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(...navy);
+ doc.text('RESUMO FINANCEIRO',14,y+4);y+=9;
+ const metrics=[
+  ['TOTAL DAS ROTAS',total],['PAGAMENTOS ANTERIORES',paid+settled],
+  ['SALDO ANTES',previousBalance],['VALOR SELECIONADO PARA PAGAR',toPay],['SALDO APOS PAGAMENTO',remaining]
+ ];
+ const left=14,boxW=269,rowH=9;
+ metrics.forEach(([label,value],i)=>{
+  const yy=y+i*rowH,highlight=i===3;
+  doc.setFillColor(...(highlight?navy:i%2===0?pale:[250,252,254]));
+  doc.roundedRect(left,yy,boxW,rowH-0.5,1,1,'F');
+  doc.setFont('helvetica',highlight?'bold':'normal');doc.setFontSize(9);
+  doc.setTextColor(...(highlight?[255,255,255]:ink));
+  doc.text(label,left+4,yy+5.9);
+  doc.setFont('helvetica','bold');doc.text(money(value),left+boxW-5,yy+5.9,{align:'right'});
+ });
+ y+=metrics.length*rowH+7;
+ doc.setFont('helvetica','italic');doc.setFontSize(8);doc.setTextColor(105,119,132);
+ doc.text('Documento de conferencia gerado antes da confirmacao. O registro bancario depende da acao Confirmar pagamento.',14,Math.min(y,190));
+ footer();
  const filename='INNOVA_'+(paymentMode==='ADVANCE'?'ADIANTAMENTO':'QUITACAO')+'_'+driver.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9]+/g,'_')+'_'+$('payment-date').value+'.pdf';
  doc.save(filename);
 };
