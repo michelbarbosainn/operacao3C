@@ -8,7 +8,7 @@ function today(){return new Date().toLocaleDateString('en-CA',{timeZone:'America
 function table(head,data){return '<table><thead><tr>'+head.map(x=>`<th>${esc(x)}</th>`).join('')+'</tr></thead><tbody>'+data.map(r=>'<tr>'+r.map(v=>`<td>${esc(v)}</td>`).join('')+'</tr>').join('')+'</tbody></table>';}
 async function rpc(fn,args={}){const {data,error}=await db.rpc(fn,args);if(error)throw Error(error.message);return data;}
 async function init(){try{if(!cfg.supabaseUrl?.startsWith('https://')||!cfg.supabasePublishableKey||cfg.supabasePublishableKey.includes('SUBSTITUIR'))throw Error('Mantenha o config.js já configurado na V4. A chave pública não está preenchida.');db=createClient(cfg.supabaseUrl,cfg.supabasePublishableKey,{auth:{persistSession:true,autoRefreshToken:true}});const {data}=await db.auth.getSession();if(data.session)await enter(data.session.user);else message('Acesse com seu Google corporativo. O acesso por senha permanece temporariamente durante a migração.');}catch(e){message(e.message,true);}}
-async function enter(user){if(!String(user.email||'').toLowerCase().endsWith('@innovasl.com.br')){await db.auth.signOut();throw Error('Acesso restrito a contas corporativas @innovasl.com.br.');}await rpc('pcd_dashboard');$('who').textContent=user.email;$('login-panel').classList.add('hidden');$('main').classList.remove('hidden');$('logout').classList.remove('hidden');await refreshMetrics();await showTab('routes');await refreshHealth();message('Conectado ao banco operacao3C.');}
+async function enter(user){if(!String(user.email||'').toLowerCase().endsWith('@innovasl.com.br')){await db.auth.signOut();throw Error('Acesso restrito a contas corporativas @innovasl.com.br.');}await rpc('pcd_dashboard');$('who').textContent=user.email;$('login-panel').classList.add('hidden');$('main').classList.remove('hidden');$('logout').classList.remove('hidden');await refreshMetrics();await showTab('routes');await refreshHealth();$('message').classList.add('hidden');}
 $('login').onclick=async()=>{try{$('login').disabled=true;const {data,error}=await db.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});if(error)throw error;await enter(data.user);}catch(e){message('Não foi possível entrar: '+e.message,true);}finally{$('login').disabled=false;}};
 $('google-login').onclick=async()=>{try{if(!db)throw Error('Supabase não configurado.');const {error}=await db.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname,queryParams:{hd:'innovasl.com.br',prompt:'select_account'}}});if(error)throw error;}catch(e){message('Falha ao iniciar Google: '+e.message,true);}};
 $('logout').onclick=async()=>{await db.auth.signOut();location.reload();};
@@ -377,37 +377,65 @@ $('gmail-apply').onclick=async()=>{
 $('gmail-history').onclick=async()=>{try{gmailBusySet(true);gmailStatus('Consultando histórico...');const r=await gmailAdmin('HISTORICO');$('gmail-operation-results').innerHTML=table(['Importado em','Arquivo','Linhas','Inseridas','Atualizadas','Sem alteração'],(r.items||[]).map(x=>[new Date(x.imported_at).toLocaleString('pt-BR'),x.filename,x.row_count,x.inserted_count,x.updated_count,x.unchanged_count]));gmailStatus(`${r.items?.length||0} anexo(s) no histórico. Nenhum dado foi alterado.`);}catch(e){gmailStatus('Erro: '+e.message);message(e.message,true);}finally{gmailBusySet(false);}};
 
 
-// INNOVA OC Faturamento V1 - prévia SOMENTE LEITURA.
+// INNOVA OC Faturamento V1.1 — consulta notas fiscais de TODOS os destinos por plano.
+// Complementos são simulações locais, sem persistência ou aprovação financeira.
 let billingPage=0,billingTotal=0;
 const billingMoney=n=>n==null?'—':Number(n).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 function billingNorm(v){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();}
-async function billingQuery(tableName,apply){let q=db.from(tableName).select('*');return await apply(q);}
+function billingBR(v){if(!v)return '—';const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1]}`:String(v);}
+function billingDateISO(v){const x=String(v||'').trim();if(!x)return null;const m=x.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);if(!m)throw Error('Informe a data no formato DD/MM/AAAA.');const iso=`${m[3]}-${m[2]}-${m[1]}`;const d=new Date(iso+'T12:00:00Z');if(isNaN(d)||d.getUTCDate()!==Number(m[1])||d.getUTCMonth()+1!==Number(m[2]))throw Error('Data inválida.');return iso;}
+const billingComplements=new Map();
+async function billingInvoices(plans){
+ const rows=[];const unique=[...new Set(plans.map(String).filter(Boolean))];
+ // Consulta por plano, não por cidade da rota. A paginação evita truncar as notas.
+ for(let i=0;i<unique.length;i+=20){const part=unique.slice(i,i+20);let offset=0;
+  while(true){const {data,error}=await db.from('pcd_v8_invoices').select('plan_number,city').in('plan_number',part).range(offset,offset+999);
+   if(error)throw Error('Não foi possível consultar todas as cidades nas notas fiscais: '+error.message);
+   rows.push(...(data||[]));if(!data||data.length<1000)break;offset+=1000;
+  }
+ }
+ return rows;
+}
 async function loadBilling(){
- const search=$('billing-search').value.trim(),date=$('billing-date').value||null;
+ const search=$('billing-search').value.trim(),date=billingDateISO($('billing-date').value);
  const a=await rpc('pcd_v8_routes',{p_search:search,p_date:date,p_limit:50,p_offset:billingPage*50});
  billingTotal=a.total||0;const data=a.rows||[];$('billing-total').textContent=billingTotal;
- const cities=[...new Set(data.map(r=>String(r.city||'').trim()).filter(Boolean))];
- const profiles=[...new Set(data.map(r=>String(r.vehicle_profile||'').trim()).filter(Boolean))];
+ const notes=await billingInvoices(data.map(r=>r.plan_number));
+ const invoiceCities=new Map();for(const n of notes){const k=String(n.plan_number||'');if(!invoiceCities.has(k))invoiceCities.set(k,new Set());if(n.city)invoiceCities.get(k).add(billingNorm(n.city));}
+ const cities=[...new Set([...notes.map(n=>billingNorm(n.city)),...data.map(r=>billingNorm(r.city))].filter(Boolean))];
+ const profiles=[...new Set(data.map(r=>billingNorm(r.vehicle_profile)).filter(Boolean))];
  const cityRates=[],tollRates=[],exceptions=[];
- // Supabase 'in' filters use raw city strings; secondary normalized match handles case and accents.
- if(cities.length){const {data:rr,error}=await db.from('pcd_billing_city_rates').select('city,band,vehicle_profile,freight_payable,distance_km').in('city',cities).limit(3000);if(error)throw error;cityRates.push(...rr);const {data:tt,error:te}=await db.from('pcd_billing_tolls').select('city,amount').in('city',cities).limit(1000);if(te)throw te;tollRates.push(...tt);}
- const supplier=$('billing-supplier').value.trim();
- if(supplier){const {data:ee,error}=await db.from('pcd_billing_supplier_rates').select('supplier_name,vehicle_profile,band,amount,effective_from,effective_until').eq('supplier_name',supplier).limit(500);if(error)throw error;exceptions.push(...ee);}
+ // Normalização em JS: evita perder cidades com diferenças de acentuação/capitalização.
+ if(cities.length){for(let i=0;i<cities.length;i+=20){const part=cities.slice(i,i+20);
+  const {data:rr,error}=await db.from('pcd_billing_city_rates').select('city,band,vehicle_profile,freight_payable,revenue_reference,distance_km').in('city',part).limit(5000);if(error)throw error;cityRates.push(...(rr||[]));
+  const {data:tt,error:te}=await db.from('pcd_billing_tolls').select('city,amount').in('city',part).limit(1000);if(te)throw te;tollRates.push(...(tt||[]));
+ }}
+ const supplier=$('billing-supplier').value.trim();if(supplier){const {data:ee,error}=await db.from('pcd_billing_supplier_rates').select('supplier_name,vehicle_profile,band,amount,effective_from,effective_until').eq('supplier_name',supplier).limit(500);if(error)throw error;exceptions.push(...(ee||[]));}
  $('billing-rates-status').textContent=cityRates.length?'Disponível':'Sem correspondência';$('billing-tolls-status').textContent=tollRates.length?'Disponível':'Sem correspondência';
  const grouped=new Map();for(const r of data){const key=String(r.plan_number)+'|'+String(r.route_date||r.loading_on||'')+'|'+String(r.vehicle_profile||'');if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(r);}
- const result=[];for(const group of grouped.values()){
-  const r=group[0],cityList=[...new Set(group.map(x=>String(x.city||'').trim()).filter(Boolean))],prof=billingNorm(r.vehicle_profile);
-  const matched=cityList.flatMap(city=>cityRates.filter(x=>billingNorm(x.city)===billingNorm(city)&&billingNorm(x.vehicle_profile)===prof).map(x=>({...x,routeCity:city})));
+ const result=[],metadata=[];for(const group of grouped.values()){
+  const r=group[0],plan=String(r.plan_number),noteCities=[...(invoiceCities.get(plan)||[])],cityList=noteCities.length?noteCities:[...new Set(group.map(x=>billingNorm(x.city)).filter(Boolean))],prof=billingNorm(r.vehicle_profile);
+  const matched=cityList.flatMap(city=>cityRates.filter(x=>billingNorm(x.city)===city&&billingNorm(x.vehicle_profile)===prof).map(x=>({...x,routeCity:city})));
   matched.sort((x,y)=>Number(y.band)-Number(x.band)||Number(y.distance_km||0)-Number(x.distance_km||0));const decisive=matched[0];
   const dateKey=r.route_date||r.loading_on||'';
   const override=decisive?exceptions.filter(x=>billingNorm(x.vehicle_profile)===prof&&Number(x.band)===Number(decisive.band)&&(!dateKey||x.effective_from<=dateKey)&&(!x.effective_until||x.effective_until>=dateKey)).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)))[0]:null;
   const cityTolls=decisive?tollRates.filter(x=>billingNorm(x.city)===billingNorm(decisive.routeCity)):[];
-  const toll=cityTolls.length?cityTolls[0].amount:null;
-  const freight=override?override.amount:decisive?.freight_payable;
-  const note=!decisive?'Cidade/perfil sem tabela':cityTolls.length>1&&new Set(cityTolls.map(x=>Number(x.amount))).size>1?'Pedágios divergentes':!cityTolls.length?'Pedágio sem referência':override?'Exceção fornecedor':'Tabela padrão';
-  result.push([r.plan_number,dateKey,r.driver_name||'—',prof,cityList.join(' · '),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingMoney(freight),billingMoney(toll),freight==null||toll==null?'—':billingMoney(Number(freight)+Number(toll)),note]);
+  const toll=cityTolls.length?Number(cityTolls[0].amount):null;
+  const freight=override?Number(override.amount):decisive?Number(decisive.freight_payable):null;
+  const revenue=decisive?.revenue_reference==null?null:Number(decisive.revenue_reference);
+  const id=String(r.id||plan+'|'+dateKey),comp=billingComplements.get(id)||{amount:0,reason:''};
+  const note=!noteCities.length?'Sem notas vinculadas — cidade operacional':matched.length!==cityList.length?'Cidade/perfil sem tabela':!decisive?'Cidade/perfil sem tabela':cityTolls.length>1&&new Set(cityTolls.map(x=>Number(x.amount))).size>1?'Pedágios divergentes':!cityTolls.length?'Pedágio sem referência':override?'Exceção fornecedor':'Tabela padrão';
+  result.push([plan,billingBR(dateKey),r.driver_name||'—',prof,cityList.join(' · '),cityList.length,decisive?.routeCity||'—',decisive?.band??'—',billingMoney(freight),billingMoney(revenue),billingMoney(toll),billingMoney(comp.amount),comp.reason||'—',freight==null||toll==null?'—':billingMoney(freight+toll+comp.amount),note]);
+  metadata.push({id,freight,toll});
  }
- $('billing-table').innerHTML=table(['Plano','Data','Motorista','Perfil','Cidades','Qtd. cidades','Cidade determinante','Faixa','Frete base','Pedágio ref.','Total base','Conferência'],result);
+ $('billing-table').innerHTML=table(['Plano','Data','Motorista','Perfil','Cidades','Qtd. cidades','Cidade determinante','Faixa','Frete a pagar','Receita frete','Pedágio ref.','Complemento','Motivo complemento','Total a pagar','Conferência'],result);
+ $('billing-table').querySelectorAll('tbody tr').forEach((tr,i)=>{const meta=metadata[i],c=billingComplements.get(meta.id)||{amount:0,reason:''};
+  const amount=document.createElement('input');amount.type='number';amount.min='0';amount.step='0.01';amount.className='billing-comp-input';amount.value=c.amount||'';amount.placeholder='0,00';amount.title='Complemento simulado, ainda não gravado';
+  const reason=document.createElement('input');reason.type='text';reason.className='billing-reason-input';reason.value=c.reason||'';reason.placeholder='Justificativa';reason.title='Motivo do complemento';
+  const update=()=>{const val=Number(amount.value);if(!Number.isFinite(val)||val<0){amount.setCustomValidity('Informe valor válido');return;}amount.setCustomValidity('');billingComplements.set(meta.id,{amount:val,reason:reason.value.trim()});tr.children[13].textContent=meta.freight==null||meta.toll==null?'—':billingMoney(meta.freight+meta.toll+val);};
+  amount.addEventListener('input',update);reason.addEventListener('input',update);
+  tr.children[11].textContent='';tr.children[11].append(amount);tr.children[12].textContent='';tr.children[12].append(reason);
+ });
  $('billing-page').textContent=`${billingTotal} registros operacionais · página ${billingPage+1}`;
  $('billing-prev').disabled=billingPage===0;$('billing-next').disabled=(billingPage+1)*50>=billingTotal;
 }

@@ -73,3 +73,6 @@
 
 /* Faturamento V1 - somente leitura */
 .billing-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}.billing-stats>div{border:1px solid #e2eaf3;border-radius:10px;padding:12px;background:#f8fafc}.billing-stats small{display:block;color:#637b96;font-size:11px;margin-bottom:5px}.billing-stats strong{font-size:16px;font-weight:600;color:#002f6c}#billing-table{max-height:60vh;overflow:auto}#billing-table th{position:sticky;top:0;z-index:1;white-space:nowrap}#billing-table td{white-space:nowrap;font-size:11px}@media(max-width:720px){.billing-stats{grid-template-columns:1fr 1fr}}
+
+/* Faturamento V1.1: campos compactos de negociação */
+.billing-comp-input{width:94px;min-width:94px;padding:7px;font-size:12px}.billing-reason-input{width:160px;min-width:160px;padding:7px;font-size:12px}
