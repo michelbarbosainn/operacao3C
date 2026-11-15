@@ -251,3 +251,16 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 #route-table th,#route-table td{padding-left:6px!important;padding-right:6px!important}
 #route-table td:nth-child(6){max-width:110px}
 #route-table td:nth-child(11){max-width:135px}
+
+/* V13.8: complemento abre em popover, sem alargar a coluna */
+#route-table td:nth-child(2){overflow:hidden}
+#route-table .v138-complement-open{display:flex;align-items:center;gap:3px;width:100%;max-width:100%;min-width:0;border:0;background:transparent;color:inherit;font:inherit;font-weight:400;padding:2px 0;cursor:pointer;text-align:left}
+#route-table .v138-complement-open:hover .v138-complement-text{text-decoration:underline;text-decoration-style:dotted}
+#route-table .v138-complement-text{display:block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#route-table .v138-complement-expand{flex:none;font-size:11px;color:#487e9d}
+.v138-complement-popup{position:fixed;z-index:99999;width:min(370px,calc(100vw - 16px));max-height:min(340px,calc(100vh - 16px));display:flex;flex-direction:column;gap:10px;padding:14px;background:#fff;border:1px solid #cbd9e5;border-radius:9px;box-shadow:0 10px 32px rgba(14,42,65,.18);font-size:12px;color:#1b3b54;box-sizing:border-box}
+.v138-complement-heading{font-size:12px;font-weight:600;color:#234e70}
+.v138-complement-body{overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55;user-select:text}
+.v138-complement-actions{display:flex;justify-content:flex-end;gap:8px}
+.v138-complement-actions button{border:1px solid #cbd9e5;border-radius:5px;background:#f8fafc;color:#245574;padding:6px 11px;font:inherit;cursor:pointer}
+.v138-complement-actions button:hover{background:#eaf3f8}
