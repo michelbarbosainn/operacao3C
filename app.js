@@ -40,7 +40,7 @@ async function loadAvailability(){
    const statuses=[...new Set(old.map(r=>routeDisplayStatus(r)))];
    const priority=['EM ROTA','NÃO EMBARCOU','PROGRAMADO','EMPLACAR','CONCLUÍDO'];
    const chosen=priority.find(x=>statuses.includes(x))||statuses[0];
-   const btn=document.createElement('button');btn.type='button';btn.className='av-previous-status route-pill '+(chosen==='PROGRAMADO'?'programmed':chosen==='EMPLACAR'?'toassign':chosen==='NÃO EMBARCOU'?'notboarded':'other');
+   const btn=document.createElement('button');btn.type='button';btn.className='av-previous-status av-sac-badge '+(chosen==='PROGRAMADO'?'av-sac-programmed':chosen==='EMPLACAR'?'av-sac-toassign':chosen==='NÃO EMBARCOU'?'av-sac-notboarded':chosen==='EM ROTA'?'av-sac-inroute':chosen==='CONCLUÍDO'?'av-sac-completed':'av-sac-other');
    btn.textContent=chosen+(old.length>1?' · '+old.length+' rotas':'');btn.title='Status da rota anterior (SAC). Clique para consultar as rotas.';
    btn.onclick=()=>{modal('Status da rota anterior',d.name+' · '+brDate(old[0].route_date),'<div class="av-prev-details">'+old.map(r=>'<p><b>Plano:</b> '+esc(r.plan_number)+' · <b>Cidade:</b> '+esc(r.city||r.destination||'—')+' · <b>Carregamento:</b> '+esc(brDate(r.loading_on))+' '+esc(r.loading_time||'')+' · <b>Status SAC:</b> '+esc(routeDisplayStatus(r))+'</p>').join('')+'</div>',async()=>{});$('modal-save').classList.add('hidden');};prevCell.append(btn);
   }else prevCell.textContent='—';

@@ -320,3 +320,13 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 #panel-availability #availability-table td:nth-child(6){min-width:120px}
 @media(max-width:1260px){#panel-routes .route-compact-filters{grid-template-columns:repeat(4,minmax(0,1fr))!important}}
 @media(max-width:690px){#panel-routes .route-compact-filters{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+
+/* V13.14 - Etiquetas claras de status anterior, sem herdar tema escuro */
+#panel-availability .av-previous-status.av-sac-badge {display:inline-flex!important;align-items:center!important;justify-content:center!important;min-height:22px!important;max-width:100%;padding:4px 9px!important;border:1px solid transparent!important;border-radius:999px!important;font-size:10px!important;font-weight:650!important;line-height:1.2!important;letter-spacing:0!important;box-shadow:none!important;text-shadow:none!important;opacity:1!important;filter:none!important;}
+#panel-availability .av-sac-programmed {background:#e8f1ff!important;color:#1756a3!important;border-color:#d3e4ff!important;}
+#panel-availability .av-sac-inroute {background:#e3f2ff!important;color:#1167a8!important;border-color:#cce6fb!important;}
+#panel-availability .av-sac-completed {background:#e1f7eb!important;color:#147443!important;border-color:#c6edd8!important;}
+#panel-availability .av-sac-notboarded {background:#ffe9e9!important;color:#a12d38!important;border-color:#f8d1d4!important;}
+#panel-availability .av-sac-toassign {background:#fff2d8!important;color:#9b5b0b!important;border-color:#ffe3b0!important;}
+#panel-availability .av-sac-other {background:#edf1f5!important;color:#4c6175!important;border-color:#dce5ee!important;}
+#panel-availability .av-previous-status.av-sac-badge:hover {filter:brightness(.97)!important;text-decoration:none!important;}
