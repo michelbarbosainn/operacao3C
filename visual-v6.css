@@ -264,3 +264,16 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 .v138-complement-actions{display:flex;justify-content:flex-end;gap:8px}
 .v138-complement-actions button{border:1px solid #cbd9e5;border-radius:5px;background:#f8fafc;color:#245574;padding:6px 11px;font:inherit;cursor:pointer}
 .v138-complement-actions button:hover{background:#eaf3f8}
+
+/* V13.10 — cabeçalho compacto sem banner */
+.top{display:flex;align-items:center;gap:16px;}
+.top-operation{display:flex;align-items:center;gap:clamp(10px,2vw,28px);min-width:0;white-space:nowrap;overflow:hidden;}
+.top-operation-title{font-size:clamp(12px,1.15vw,16px);font-weight:650;color:#f1f6ff;overflow:hidden;text-overflow:ellipsis;}
+.top-operation-place{font-weight:400;color:#b9cfe5;}
+.top-operation-mark{font-size:clamp(13px,1.5vw,21px);font-weight:800;letter-spacing:-.055em;color:#ffffff30;white-space:nowrap;}
+.top-operation-mark em{font-style:normal;color:#ffc65890;}
+.top>.row{margin-left:auto;flex-shrink:0;}
+.top .user-email{white-space:nowrap;}
+.workspace>.stats:first-child{margin-top:0;}
+@media(max-width:1150px){.top-operation-mark{display:none}.top-operation-place{display:none}}
+@media(max-width:740px){.top{gap:8px}.top-operation-title{font-size:11px}.top .user-email{max-width:105px}.top #logout{padding:7px 9px}}
