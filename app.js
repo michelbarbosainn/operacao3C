@@ -48,24 +48,65 @@ async function loadAvailability(){
  });
 }
 const availabilitySort={key:'routes_count',dir:-1};$('availability-search').addEventListener('input',()=>loadAvailability().catch(e=>message(e.message,true)));$('refresh-availability').onclick=loadAvailability;$('availability-date').onchange=async()=>{await loadAvailability();await refreshMetrics();};$('availability-category').onchange=loadAvailability;$('availability-profile').onchange=loadAvailability;$('availability-status').onchange=loadAvailability;
+
+// V13: percorre TODAS as páginas do RPC existente antes de filtrar e totalizar.
+// Não soma somente os 50 registros visíveis; não altera o banco.
+let v13Filtered=[],v13Complement=false,v13Pending=false,v13DriverView=false,v13Loaded=new Set();
+async function v13FetchAll(search){
+ const first=await rpc('pcd_v8_routes',{p_search:search,p_date:null,p_limit:50,p_offset:0});
+ const total=Number(first.total)||0,all=[...(first.rows||[])];
+ for(let offset=50;offset<total;offset+=50){
+  const part=await rpc('pcd_v8_routes',{p_search:search,p_date:null,p_limit:50,p_offset:offset});
+  if(!part||!Array.isArray(part.rows))throw Error('Consulta incompleta: não foi possível obter todas as rotas.');
+  all.push(...part.rows);
+ }
+ if(all.length!==total)throw Error('A consulta retornou '+all.length+' de '+total+' rotas. Atualize e tente novamente.');
+ return all;
+}
+function v13RenderSummary(data){
+ const active=data.filter(r=>routeDisplayStatus(r)!=='NÃO EMBARCOU');
+ const sum=(arr,key)=>arr.reduce((n,r)=>n+(Number(r[key])||0),0);
+ const opp=active.filter(r=>{const offered=PROFILE_ORDER.indexOf(norm(r.vehicle_profile));const actual=PROFILE_ORDER.indexOf(norm(r.driver_profile||r.assigned_profile||''));return offered>=0&&actual>=0&&actual<offered&&!!r.driver_name;}).length;
+ const cards=[['Rotas ofertadas',data.length.toLocaleString('pt-BR')],['Peso total',sum(active,'gross_weight').toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg'],['Entregas totais',sum(active,'delivery_count').toLocaleString('pt-BR')],['Valor mercadoria',sum(active,'merchandise_value').toLocaleString('pt-BR',{style:'currency',currency:'BRL'})],['Oportunidades',opp+' confirmadas'],['Não embarcaram',data.length-active.length]];
+ $('route-summary').innerHTML=cards.map(([label,value])=>`<div class="v13-card"><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join('');
+ // Sem perfil do motorista retornado pela consulta, a oportunidade permanece conservadora (não presumida).
+ if(v13DriverView){const groups=new Map();for(const r of data){const name=r.driver_name||'Sem motorista';const item=groups.get(name)||{name,count:0,last:''};item.count++;if(String(r.route_date||'')>item.last)item.last=String(r.route_date||'');groups.set(name,item);}const sorted=[...groups.values()].sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name,'pt-BR'));$('route-driver-summary').innerHTML='<h3>Rotas por motorista</h3>'+table(['Motorista','Rotas','Última data'],sorted.map(x=>[x.name,x.count,brDate(x.last)]));$('route-driver-summary').classList.remove('hidden');}else $('route-driver-summary').classList.add('hidden');
+}
+$('route-pending').title='Rotas EMPLACAR ou PROGRAMADO; não equivale a filtro de carregamento pendente.';
+$('route-pending').onclick=()=>{v13Pending=!v13Pending;$('route-pending').classList.toggle('v13-selected',v13Pending);pages.routes=0;loadRoutes('routes').catch(e=>message(e.message,true));};
+$('route-driver-view').onclick=()=>{v13DriverView=!v13DriverView;$('route-driver-view').classList.toggle('v13-selected',v13DriverView);v13RenderSummary(v13Filtered);};
 async function loadRoutes(which){
  const prefix=which==='sac'?'sac':'route';
- const search=$(prefix+'-search').value.trim(),date=$(prefix+'-date').value.trim();
- const isoDate=date?isoDateBR(date):null;
- const a=await rpc('pcd_v8_routes',{p_search:search,p_date:isoDate,p_limit:50,p_offset:pages[which]*50});
- totals[which]=a.total;
+ const search=$(prefix+'-search').value.trim();
  const profileFilter=$(prefix+'-profile')?.value||'',statusFilter=$(prefix+'-status')?.value||'';
- const data=(a.rows||[]).filter(r=>(!profileFilter||norm(r.vehicle_profile)===norm(profileFilter))&&(!statusFilter||routeDisplayStatus(r)===statusFilter));
- const headers=['Plano','Complemento','Solicitação','Data rota','Data car.','Hora car.','Cidade','Destino','Perfil','Peso','Entregas','Valor NF','Motorista','Placa','Status rota','Carregado','GreenMile'];
+ let a,data;
+ if(which==='routes'){
+  const start=$('route-date-start').value,end=$('route-date-end').value,driver=norm($('route-driver').value);
+  if(start&&end&&start>end)throw Error('Data inicial não pode ser posterior à final.');
+  const all=await v13FetchAll(search);
+  const filtered=all.filter(r=>(!start||String(r.route_date||'').slice(0,10)>=start)&&(!end||String(r.route_date||'').slice(0,10)<=end)&&(!profileFilter||norm(r.vehicle_profile)===norm(profileFilter))&&(!statusFilter||routeDisplayStatus(r)===statusFilter)&&(!driver||norm(r.driver_name).includes(driver))&&(!v13Pending||routeDisplayStatus(r)==='EMPLACAR'||routeDisplayStatus(r)==='PROGRAMADO'));
+  totals.routes=filtered.length;v13Filtered=filtered;v13RenderSummary(filtered);
+  a={total:filtered.length};data=filtered.slice(pages.routes*50,(pages.routes+1)*50);
+  $('route-filter-info').textContent=filtered.length.toLocaleString('pt-BR')+' rotas nos filtros';
+ }else{
+  const date=$('sac-date').value.trim(),isoDate=date?isoDateBR(date):null;
+  a=await rpc('pcd_v8_routes',{p_search:search,p_date:isoDate,p_limit:50,p_offset:pages[which]*50});totals[which]=a.total;
+  data=(a.rows||[]).filter(r=>(!profileFilter||norm(r.vehicle_profile)===norm(profileFilter))&&(!statusFilter||routeDisplayStatus(r)===statusFilter));
+ }
+ const headers=['Plano','Complemento','Solicitação','Data rota','Data car.','Hora car.','Cidade','Perfil','Peso','Entregas','Valor NF','Motorista','Placa','Status rota','Carregado','GreenMile'];
  const target=$(which==='sac'?'sac-table':'route-table');
  const loadingStates=which==='routes'&&data.length?await rpc('pcd_v10_loading_states',{p_route_ids:data.map(r=>Number(r.id))}):[];
  const loadedIds=new Set((loadingStates||[]).filter(x=>x.is_loaded).map(x=>Number(x.route_id)));
+ if(which==='routes')for(const id of loadedIds)v13Loaded.add(id);
  if(which==='routes')window.innovaVisibleLoadedIds=loadedIds;
  if(which==='routes')window.innovaVisibleProgramRows=data.map(r=>({...r}));
- target.innerHTML=table(headers,data.map(r=>[r.plan_number,r.complement,brDate(r.request_date),brDate(r.route_date),brDate(r.loading_on),r.loading_time||'—',r.city,r.destination,r.vehicle_profile,r.gross_weight,r.delivery_count,r.merchandise_value,r.driver_name,r.plate,routeDisplayStatus(r),loadedIds.has(Number(r.id))?'CARREGADO':'PENDENTE',r.gm_status]));
+ target.innerHTML=table(headers,data.map(r=>[r.plan_number,r.complement,brDate(r.request_date),brDate(r.route_date),brDate(r.loading_on),r.loading_time||'—',r.city,r.vehicle_profile,r.gross_weight,r.delivery_count,r.merchandise_value,r.driver_name,r.plate,routeDisplayStatus(r),loadedIds.has(Number(r.id))?'CARREGADO':'PENDENTE',r.gm_status]));
+ if(which==='routes'){
+  const h=target.querySelector('thead th:nth-child(2)');h.innerHTML='';const b=document.createElement('button');b.type='button';b.className='v13-complement-toggle';b.textContent=v13Complement? '− Complemento':'+ Complemento';b.onclick=()=>{v13Complement=!v13Complement;target.classList.toggle('v13-hide-complement',!v13Complement);b.textContent=v13Complement?'− Complemento':'+ Complemento';};h.append(b);target.classList.toggle('v13-hide-complement',!v13Complement);
+ }
  target.querySelectorAll('tbody tr').forEach((tr,i)=>{
-  const r=data[i];tr.children[11].textContent=r.merchandise_value==null?'—':Number(r.merchandise_value).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-  const count=Number(r.delivery_count)||0;tr.children[10].innerHTML='';const badge=document.createElement('span');badge.className='complexity '+(count===1?'low':count<=10?'mid':'high');badge.textContent=count+' '+(count===1?'●':count<=10?'◆':'▲');badge.title=count===1?'Entrega única':count<=10?'Complexidade intermediária':'Alta complexidade';tr.children[10].append(badge);
+  const r=data[i];tr.children[9].textContent=r.merchandise_value==null?'—':Number(r.merchandise_value).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+  const count=Number(r.delivery_count)||0;tr.children[9].innerHTML='';const badge=document.createElement('span');badge.className='complexity '+(count===1?'low':count<=10?'mid':'high');badge.textContent=count+' '+(count===1?'●':count<=10?'◆':'▲');badge.title=count===1?'Entrega única':count<=10?'Complexidade intermediária':'Alta complexidade';tr.children[9].append(badge);
   if(which==='routes'){
    const cell=tr.children[0],wrap=document.createElement('div');wrap.className='plan-whatsapp-wrap';
    const plan=document.createElement('span');plan.textContent=r.plan_number||'—';
@@ -79,19 +120,28 @@ async function loadRoutes(which){
   }
   if(which==='sac'){const plan=document.createElement('button');plan.className='plan-link';plan.textContent=r.plan_number;plan.onclick=()=>openPlanInvoices(r);tr.children[0].textContent='';tr.children[0].append(plan);}
   const dateCell=tr.children[3],dateButton=document.createElement('button');dateButton.className='driver-inline';dateButton.textContent=brDate(r.route_date);dateButton.title='Reprogramar com justificativa';dateButton.disabled=!r.is_active;dateButton.onclick=()=>openReschedule(r);dateCell.textContent='';dateCell.append(dateButton);
-  const statusCell=tr.children[14],pill=document.createElement('span'),status=routeDisplayStatus(r);pill.className='route-pill '+(status==='PROGRAMADO'?'programmed':status==='EMPLACAR'?'toassign':status==='NÃO EMBARCOU'?'notboarded':'other');pill.textContent=status;statusCell.textContent='';statusCell.append(pill);
+  const statusCell=tr.children[13],pill=document.createElement('span'),status=routeDisplayStatus(r);pill.className='route-pill '+(status==='PROGRAMADO'?'programmed':status==='EMPLACAR'?'toassign':status==='NÃO EMBARCOU'?'notboarded':'other');pill.textContent=status;statusCell.textContent='';statusCell.append(pill);
   if(which==='routes'){
-   const loadedCell=tr.children[15];loadedCell.textContent='';
+   const cityCell=tr.children[6];
+   const cityLink=document.createElement('button');
+   cityLink.type='button';cityLink.className='billing-city-link route-city-link';
+   cityLink.textContent=r.city||'Consultar cidades';
+   cityLink.title='Consultar cidades do roteiro, distâncias e faixas contratuais';
+   cityLink.onclick=()=>openProgrammingCities(r);
+   cityCell.textContent='';cityCell.append(cityLink);
+  }
+  if(which==='routes'){
+   const loadedCell=tr.children[13];loadedCell.textContent='';
    const toggle=document.createElement('label');toggle.className='load-check';
    const check=document.createElement('input');check.type='checkbox';check.checked=loadedIds.has(Number(r.id));check.disabled=!r.is_active||status==='NÃO EMBARCOU';
    const word=document.createElement('span');word.textContent=check.checked?'Carregado':'Pendente';
-   check.onchange=async()=>{const requested=check.checked;check.disabled=true;try{await rpc('pcd_v10_set_loaded',{p_route_id:Number(r.id),p_is_loaded:requested});word.textContent=requested?'Carregado':'Pendente';if(requested)window.innovaVisibleLoadedIds.add(Number(r.id));else window.innovaVisibleLoadedIds.delete(Number(r.id));message('Carregamento atualizado.');}catch(e){check.checked=!requested;message(e.message,true);}finally{check.disabled=!r.is_active||status==='NÃO EMBARCOU';}};
+   check.onchange=async()=>{const requested=check.checked;check.disabled=true;try{await rpc('pcd_v10_set_loaded',{p_route_id:Number(r.id),p_is_loaded:requested});word.textContent=requested?'Carregado':'Pendente';if(requested)window.innovaVisibleLoadedIds.add(Number(r.id));else window.innovaVisibleLoadedIds.delete(Number(r.id));v13Loaded[requested?'add':'delete'](Number(r.id));v13RenderSummary(v13Filtered);message('Carregamento atualizado.');}catch(e){check.checked=!requested;message(e.message,true);}finally{check.disabled=!r.is_active||status==='NÃO EMBARCOU';}};
    toggle.append(check,word);loadedCell.append(toggle);
   }
   if(which==='routes'){
-   const driverCell=tr.children[12],edit=document.createElement('button');edit.className='driver-picker-trigger';edit.textContent=(status==='NÃO EMBARCOU'?'Não embarcou':r.driver_name||'Selecionar motorista')+'  ▾';edit.disabled=!r.is_active;edit.title='Escolher motorista ou registrar não embarque';edit.onclick=()=>inlineAssign(r,driverCell);driverCell.textContent='';driverCell.append(edit);
+   const driverCell=tr.children[9],edit=document.createElement('button');edit.className='driver-picker-trigger';edit.textContent=(status==='NÃO EMBARCOU'?'Não embarcou':r.driver_name||'Selecionar motorista')+'  ▾';edit.disabled=!r.is_active;edit.title='Escolher motorista ou registrar não embarque';edit.onclick=()=>inlineAssign(r,driverCell);driverCell.textContent='';driverCell.append(edit);
   }else if(r.is_active&&status!=='EMPLACAR'&&status!=='NÃO EMBARCOU'){
-   const sacBtn=document.createElement('button');sacBtn.className='driver-inline';sacBtn.textContent=r.gm_status||'Atualizar SAC';sacBtn.title='Atualizar acompanhamento SAC';sacBtn.onclick=()=>openSAC(r);tr.children[16].textContent='';tr.children[16].append(sacBtn);
+   const sacBtn=document.createElement('button');sacBtn.className='driver-inline';sacBtn.textContent=r.gm_status||'Atualizar SAC';sacBtn.title='Atualizar acompanhamento SAC';sacBtn.onclick=()=>openSAC(r);tr.children[13].textContent='';tr.children[13].append(sacBtn);
   }
  });
  $(prefix+'-page').textContent=`${a.total} rotas · página ${pages[which]+1}`;
@@ -481,7 +531,56 @@ const billingNumber=n=>n==null||n===''?null:Number(n);
 const billingKg=n=>n==null||n===''?'—':Number(n).toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg';
 async function billingDriverProfiles(date){try{const list=await rpc('pcd_v8_drivers',{p_date:date||new Date().toISOString().slice(0,10)});return Array.isArray(list)?list:[];}catch(e){console.warn('Perfil embarcado não disponível:',e);return [];}}
 const billingReasonOptions=['DISTÂNCIA DA ROTA','COMPLEXIDADE DA ROTA','ESPERA','BONIFICAÇÃO'];
-function billingCityDetails(plan,items){const modal=$('billing-cities-modal'),body=$('billing-cities-body');$('billing-cities-plan').textContent='Plano '+plan;body.textContent='';for(const item of items){const tr=document.createElement('tr');for(const val of [item.city,item.distance==null?'—':Number(item.distance).toLocaleString('pt-BR')+' km',item.band==null?'Sem faixa':'Faixa '+item.band]){const td=document.createElement('td');td.textContent=val;tr.append(td);}body.append(tr);}modal.classList.remove('hidden');}
+// Consulta operacional de cidades: usa as mesmas notas e tabela de faixas do Faturamento.
+// Não modifica rotas, valores nem tabelas financeiras.
+async function openProgrammingCities(r){
+ const plan=String(r.plan_number||'');
+ const dialog=$('billing-cities-modal'),body=$('billing-cities-body');
+ const summary=$('programming-city-summary');
+ dialog.classList.remove('hidden');
+ $('billing-cities-plan').textContent='Plano '+plan+' · Consultando cidades...';
+ body.replaceChildren();summary.textContent='Consultando notas fiscais e faixas contratuais...';
+ try{
+  const notes=await billingInvoices([plan]);
+  const noteCities=[...new Set(notes.map(n=>billingNorm(n.city)).filter(Boolean))];
+  const routeCity=billingNorm(r.city);
+  const cities=noteCities.length?noteCities:(routeCity?[routeCity]:[]);
+  if(!cities.length){summary.textContent='Nenhuma cidade identificada para este plano.';return;}
+  // Buscar a tabela por páginas, sem presumir que os nomes estejam acentuados igualmente.
+  const rates=[];let offset=0;
+  while(true){
+   const {data,error}=await db.from('pcd_billing_city_rates')
+    .select('city,band,vehicle_profile,distance_km').range(offset,offset+999);
+   if(error)throw error;
+   rates.push(...(data||[]));
+   if(!data||data.length<1000)break;
+   offset+=1000;
+   if(offset>50000)throw Error('Tabela de cidades muito extensa para consulta completa.');
+  }
+  const profile=billingNorm(r.vehicle_profile);
+  const details=cities.map(city=>{
+   const matching=rates.filter(x=>billingNorm(x.city)===city&&billingNorm(x.vehicle_profile)===profile)
+    .sort((a,b)=>Number(b.band||0)-Number(a.band||0)||Number(b.distance_km||0)-Number(a.distance_km||0));
+   const best=matching[0];
+   return {city,band:best?.band??null,distance:best?.distance_km??null};
+  }).sort((a,b)=>Number(b.band||0)-Number(a.band||0)||Number(b.distance||0)-Number(a.distance||0));
+  billingCityDetails(plan,details);
+  const complete=details.every(x=>x.band!=null&&x.distance!=null);
+  const decisive=complete?details[0]:null;
+  summary.replaceChildren();
+  if(decisive){
+   const heading=document.createElement('div');heading.className='programming-city-label';heading.textContent='CIDADE DETERMINANTE DO FRETE';
+   const name=document.createElement('div');name.className='programming-city-name';name.textContent=decisive.city;
+   const meta=document.createElement('div');meta.className='programming-city-meta';meta.textContent='Faixa '+decisive.band+' · '+Number(decisive.distance).toLocaleString('pt-BR')+' km';
+   const explanation=document.createElement('p');explanation.textContent='Maior faixa contratual; em caso de empate, maior distância. Esta cidade determina a faixa utilizada na formação do preço da rota.';
+   summary.append(heading,name,meta,explanation);
+  }else{
+   summary.textContent='Cidade determinante não confirmada: existem cidades sem faixa ou distância cadastrada para o perfil '+(r.vehicle_profile||'—')+'. Confira os dados antes de utilizar a informação para precificação.';
+  }
+  if(!noteCities.length){const note=document.createElement('p');note.className='programming-city-note';note.textContent='Sem notas fiscais vinculadas: exibida somente a cidade operacional da rota.';summary.append(note);}
+ }catch(e){summary.textContent='Não foi possível consultar as cidades: '+e.message;body.replaceChildren();}
+}
+function billingCityDetails(plan,items){if(!document.querySelector('#programming-city-summary').dataset.programming){document.querySelector('#programming-city-summary').textContent='';}const modal=$('billing-cities-modal'),body=$('billing-cities-body');$('billing-cities-plan').textContent='Plano '+plan;body.textContent='';for(const item of items){const tr=document.createElement('tr');for(const val of [item.city,item.distance==null?'—':Number(item.distance).toLocaleString('pt-BR')+' km',item.band==null?'Sem faixa':'Faixa '+item.band]){const td=document.createElement('td');td.textContent=val;tr.append(td);}body.append(tr);}modal.classList.remove('hidden');}
 $('billing-cities-close').onclick=()=>$('billing-cities-modal').classList.add('hidden');$('billing-cities-modal').addEventListener('click',e=>{if(e.target.id==='billing-cities-modal')e.currentTarget.classList.add('hidden');});
 function billingTollMultiplier(profile){const x=billingNorm(profile).replace(/[^A-Z0-9]/g,'');return ['34','TRESQUARTOS','MEDIO','MEDIUM'].includes(x)?2:1;}
 function billingOpenToll(city,plan){
@@ -909,7 +1008,7 @@ async function loadBilling(){
   };
   amount.addEventListener('input',update);reason.addEventListener('change',update);
   tr.children[13].textContent='';const compInline=document.createElement('div');compInline.className='billing-comp-inline';compInline.append(amount,reason);tr.children[13].append(compInline);
-  if(meta.city){const cell=tr.children[3];cell.textContent='';const cityButton=document.createElement('button');cityButton.type='button';cityButton.className='billing-city-link';cityButton.textContent=meta.city;cityButton.title='Consultar cidades, distâncias e faixas do plano';cityButton.onclick=()=>billingCityDetails(meta.plan,meta.details);cell.append(cityButton);}
+  if(meta.city){const cell=tr.children[3];cell.textContent='';const cityButton=document.createElement('button');cityButton.type='button';cityButton.className='billing-city-link';cityButton.textContent=meta.city;cityButton.title='Consultar cidades, distâncias e faixas do plano';cityButton.onclick=()=>{document.querySelector('#programming-city-summary').textContent='';billingCityDetails(meta.plan,meta.details);};cell.append(cityButton);}
   if(meta.toll==null&&meta.city){const td=tr.children[12];td.textContent='';const btn=document.createElement('button');btn.type='button';btn.className='billing-register-toll';btn.textContent='+ Cadastrar pedágio';btn.onclick=()=>billingOpenToll(meta.city,meta.plan);td.append(btn);}
   const initialMargin=meta.revenue==null||meta.freight==null||meta.toll==null||meta.totalTaxes==null||meta.aver==null||meta.adminCost==null||meta.operatingCost==null||meta.cteCost==null?null:meta.revenue-meta.freight-meta.toll-Number(c.amount||0)-meta.totalTaxes-meta.aver-meta.adminCost-meta.operatingCost-meta.cteCost;
   billingStyleMargin(tr,initialMargin,meta.revenue);
@@ -932,11 +1031,12 @@ $('billing-next').onclick=()=>{billingPage++;loadBilling().catch(e=>message(e.me
 
 $('finance-refresh').onclick=()=>loadFinanceParams().catch(e=>message(e.message,true));
 
-// Plano de embarque - PDF da página atualmente filtrada na programação.
+// Plano de embarque - PDF de todas as rotas filtradas na programação.
 async function exportProgramPDF(){
  const btn=$('program-pdf');const old=btn.textContent;btn.disabled=true;btn.textContent='Gerando PDF...';
  try{
-  const items=[...(window.innovaVisibleProgramRows||[])];if(!items.length)throw Error('Nenhuma rota na página atual para exportar.');
+  const items=[...v13Filtered];if(!items.length)throw Error('Nenhuma rota para exportar com os filtros selecionados.');
+  for(let i=0;i<items.length;i+=100){const states=await rpc('pcd_v10_loading_states',{p_route_ids:items.slice(i,i+100).map(r=>Number(r.id))});for(const st of states||[])if(st.is_loaded)v13Loaded.add(Number(st.route_id));}
   if(!await paymentPdfReady())throw Error('Biblioteca PDF indisponível. Verifique sua conexão.');
   const timeKey=r=>String(r.loading_time||'99:99:99').padStart(8,'0');
   items.sort((a,b)=>String(a.loading_on||'9999-99-99').localeCompare(String(b.loading_on||'9999-99-99'))||timeKey(a).localeCompare(timeKey(b))||String(a.plan_number||'').localeCompare(String(b.plan_number||'')));
@@ -949,7 +1049,7 @@ async function exportProgramPDF(){
    doc.setFillColor(...navy);doc.rect(0,0,297,27,'F');doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(15);doc.text('INNOVA  |  PLANO DE EMBARQUE',10,12);
    doc.setFont('helvetica','normal');doc.setFontSize(8);doc.text('3 Corações  ·  Sumaré/SP',10,19);doc.text('Emitido: '+dt,286,19,{align:'right'});
    doc.setTextColor(...ink);doc.setFont('helvetica','bold');doc.setFontSize(9);doc.text('VEÍCULOS  '+count,10,34);doc.text('PESO  '+weight.toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg',78,34);doc.text('ENTREGAS  '+deliveries,163,34);
-   doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(...muted);doc.text('Data: '+($('route-date').value||'Todas')+'   ·   Perfil: '+($('route-profile').value||'Todos')+'   ·   Status: '+($('route-status').value||'Todos')+'   ·   Ordem: carregamento crescente',10,40);
+   doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(...muted);doc.text('Data: '+([brDate($('route-date-start').value),brDate($('route-date-end').value)].join(' a '))+'   ·   Perfil: '+($('route-profile').value||'Todos')+'   ·   Status: '+($('route-status').value||'Todos')+'   ·   Ordem: carregamento crescente',10,40);
   };
   head();
   const body=items.map((r,i)=>[String(i+1),brDate(r.loading_on),String(r.loading_time||'—'),String(r.plan_number||''),String(r.city||''),String(r.vehicle_profile||''),Number(r.gross_weight||0).toLocaleString('pt-BR',{maximumFractionDigits:2}),String(r.delivery_count||0),String(r.driver_name||'—'),String(r.plate||'—'),loaded.has(Number(r.id))?'CARREGADO':'PENDENTE']);
@@ -961,7 +1061,7 @@ async function exportProgramPDF(){
    didParseCell:data=>{if(data.section==='body'&&data.column.index===10&&data.cell.raw==='CARREGADO'){data.cell.styles.textColor=green;data.cell.styles.fontStyle='bold';data.cell.styles.fillColor=[229,246,235];}},
    didDrawPage:()=>{const page=doc.internal.getCurrentPageInfo().pageNumber;if(page>1)head();doc.setFontSize(7);doc.setTextColor(...muted);doc.text('INNOVA  ·  Plano de embarque  ·  Página '+page,287,202,{align:'right'});}
   });
-  const name='INNOVA_PLANO_EMBARQUE_'+($('route-date').value||today()).replace(/\//g,'-')+'.pdf';doc.save(name);
+  const name='INNOVA_PLANO_EMBARQUE_'+($('route-date-start').value||today()).replace(/\//g,'-')+'.pdf';doc.save(name);
  }catch(e){message(e.message,true);}finally{btn.disabled=false;btn.textContent=old;}
 }
 $('program-pdf').onclick=exportProgramPDF;

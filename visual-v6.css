@@ -203,3 +203,24 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 .whatsapp-copy{background:transparent!important;color:#178354!important;border:1px solid #d4eadc!important;border-radius:6px!important;padding:2px 5px!important;line-height:1.1;font-size:13px!important;box-shadow:none!important}
 .whatsapp-copy:hover{background:#e8f7ee!important}
 @media(max-width:740px){.sidebar{width:58px!important}.sidebar .nav-label,.sidebar .nav-chevron,.sidebar-foot,.sidebar-toggle span,.cadastros-submenu{display:none!important}.sidebar-nav button{justify-content:center!important}.top{padding-left:74px!important}.top:before{left:58px!important}.shell,.footer{margin-left:58px!important}}
+
+/* Consulta de cidades na Programação */
+.route-city-link{font:inherit;font-weight:400;text-align:left;white-space:normal;max-width:220px}
+.programming-city-summary:not(:empty){background:#f2f7fc;border:1px solid #dce8f3;border-radius:10px;padding:14px;color:#24445e;font-size:12px}
+.programming-city-label{font-size:10px;letter-spacing:.06em;color:#597b98;font-weight:600}
+.programming-city-name{font-size:17px;font-weight:600;color:#133b60;margin:6px 0}
+.programming-city-meta{font-size:13px;color:#265779}
+.programming-city-summary p{margin:8px 0 0;line-height:1.5}
+.programming-city-note{font-size:11px;color:#8a5b24}
+
+/* V13 - Programação inteligente */
+#route-table.v13-hide-complement th:nth-child(2),#route-table.v13-hide-complement td:nth-child(2){display:none}
+.v13-complement-toggle{background:transparent!important;color:inherit!important;border:0!important;padding:0!important;font:inherit!important;white-space:nowrap;cursor:pointer}
+.v13-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}
+.v13-selected{outline:2px solid #2e7ba5}
+.v13-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;margin:12px 0 15px}
+.v13-card{border:1px solid #dce5ed;background:#fff;border-radius:9px;padding:13px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.v13-card small{color:#667b90;font-size:11px}.v13-card strong{font-size:19px;font-weight:600;color:#12385d;font-variant-numeric:tabular-nums}
+#route-driver-summary{margin-top:18px;overflow:auto}
+#route-driver-summary table{width:100%}
+#route-table thead th{position:sticky;top:0;z-index:1}
