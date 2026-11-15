@@ -51,7 +51,7 @@ const availabilitySort={key:'routes_count',dir:-1};$('availability-search').addE
 
 // V13: percorre TODAS as páginas do RPC existente antes de filtrar e totalizar.
 // Não soma somente os 50 registros visíveis; não altera o banco.
-let v13Filtered=[],v13Complement=false,v13Pending=false,v13Loaded=new Set();
+let v13Filtered=[],v13Complement=true,v13Pending=false,v13Loaded=new Set();
 async function v13FetchAll(search){
  const first=await rpc('pcd_v8_routes',{p_search:search,p_date:null,p_limit:50,p_offset:0});
  const total=Number(first.total)||0,all=[...(first.rows||[])];
@@ -610,6 +610,8 @@ async function openProgrammingCities(r){
  }catch(e){summary.textContent='Não foi possível consultar as cidades: '+e.message;body.replaceChildren();}
 }
 function billingCityDetails(plan,items){if(!document.querySelector('#programming-city-summary').dataset.programming){document.querySelector('#programming-city-summary').textContent='';}const modal=$('billing-cities-modal'),body=$('billing-cities-body');$('billing-cities-plan').textContent='Plano '+plan;body.textContent='';for(const item of items){const tr=document.createElement('tr');for(const val of [item.city,item.distance==null?'—':Number(item.distance).toLocaleString('pt-BR')+' km',item.band==null?'Sem faixa':'Faixa '+item.band]){const td=document.createElement('td');td.textContent=val;tr.append(td);}body.append(tr);}modal.classList.remove('hidden');}
+// V13.4: o modal compartilhado não pode permanecer dentro do painel Faturamento oculto.
+document.body.appendChild($('billing-cities-modal'));
 $('billing-cities-close').onclick=()=>$('billing-cities-modal').classList.add('hidden');$('billing-cities-modal').addEventListener('click',e=>{if(e.target.id==='billing-cities-modal')e.currentTarget.classList.add('hidden');});
 function billingTollMultiplier(profile){const x=billingNorm(profile).replace(/[^A-Z0-9]/g,'');return ['34','TRESQUARTOS','MEDIO','MEDIUM'].includes(x)?2:1;}
 function billingOpenToll(city,plan){
