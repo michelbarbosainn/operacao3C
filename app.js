@@ -25,15 +25,18 @@ document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>showTab(b.datase
 $('availability-date').value=today();
 async function loadAvailability(){
  drivers=await rpc('pcd_v8_drivers',{p_date:$('availability-date').value});
- const cat=$('availability-category').value,profile=$('availability-profile').value,status=$('availability-status').value,query=norm($('availability-search').value);
- const shown=drivers.filter(d=>(!cat||d.category===cat)&&(!profile||norm(d.profile)===norm(profile))&&(!status||d.day_status===status)&&(!query||norm(d.name).includes(query)||norm(d.plate).includes(query)));
+ const cat=avSelected('availability-category'),profile=avSelected('availability-profile'),status=avSelected('availability-status'),query=norm($('availability-search').value);
+ const shown=drivers.filter(d=>(!cat.length||cat.includes(d.category))&&(!profile.length||profile.some(x=>norm(x)===norm(d.profile)))&&(!status.length||status.includes(d.day_status))&&(!query||norm(d.name).includes(query)||norm(d.plate).includes(query)));
+ const previous=await loadPreviousRoutes($('availability-date').value);
  const key=availabilitySort.key,dir=availabilitySort.dir;
  shown.sort((a,b)=>{const av=key==='routes_count'?Number(a.routes_count):String(a[key]??'').toLocaleUpperCase('pt-BR');const bv=key==='routes_count'?Number(b.routes_count):String(b[key]??'').toLocaleUpperCase('pt-BR');const v=typeof av==='number'?av-bv:String(av).localeCompare(String(bv),'pt-BR',{numeric:true});return (v||a.name.localeCompare(b.name,'pt-BR'))*dir;});
- $('availability-table').innerHTML=table(['Motorista','Placa','Perfil','Categoria','Status','Rotas na data','Disponibilidade'],shown.map(d=>[d.name,d.plate,d.profile,d.category,'',d.routes_count,'']));
- const columns=['name','plate','profile','category','day_status','routes_count'];
- $('availability-table').querySelectorAll('thead th').forEach((th,i)=>{if(i>=columns.length)return;th.style.cursor='pointer';th.title='Clique para ordenar';th.textContent+=(availabilitySort.key===columns[i]?(availabilitySort.dir===1?' ▲':' ▼'):' ↕');th.onclick=()=>{availabilitySort.dir=availabilitySort.key===columns[i]?-availabilitySort.dir:(columns[i]==='routes_count'?-1:1);availabilitySort.key=columns[i];loadAvailability().catch(e=>message(e.message,true));};});
+ $('availability-table').innerHTML=table(['Motorista','Placa','Perfil','Categoria','Status','Rota anterior','Disponibilidade'],shown.map(d=>[d.name,d.plate,d.profile,d.category,'','','']));
+ const columns=['name','plate','profile','category','day_status',null];
+ $('availability-table').querySelectorAll('thead th').forEach((th,i)=>{if(i>=columns.length||!columns[i])return;th.style.cursor='pointer';th.title='Clique para ordenar';th.textContent+=(availabilitySort.key===columns[i]?(availabilitySort.dir===1?' ▲':' ▼'):' ↕');th.onclick=()=>{availabilitySort.dir=availabilitySort.key===columns[i]?-availabilitySort.dir:(columns[i]==='routes_count'?-1:1);availabilitySort.key=columns[i];loadAvailability().catch(e=>message(e.message,true));};});
  $('availability-table').querySelectorAll('tbody tr').forEach((tr,i)=>{
   const d=shown[i],statusCell=tr.children[4],cell=tr.lastElementChild;
+  const old=previous.get(String(d.id))||[];const prevCell=tr.children[5];
+  if(old.length){const btn=document.createElement('button');btn.type='button';btn.className='av-prev-link';btn.textContent=old.length+' rota'+(old.length>1?'s':'')+' · '+String(old[0].city||old[0].destination||'Ver detalhes');btn.title='Ver programação anterior';btn.onclick=()=>{modal('Rota anterior',d.name+' · '+brDate(old[0].route_date),'<div class=\"av-prev-details\">'+old.map(r=>'<p><b>Plano:</b> '+esc(r.plan_number)+' · <b>Cidade:</b> '+esc(r.city||r.destination||'—')+' · <b>Carregamento:</b> '+esc(brDate(r.loading_on))+' '+esc(r.loading_time||'')+' · <b>Status:</b> '+esc(r.route_status||'—')+'</p>').join('')+'</div>',async()=>{});$('modal-save').classList.add('hidden');};prevCell.append(btn);}else prevCell.textContent='—';
   const styles={DISPONIVEL:'available',INDISPONIVEL:'unavailable',PROGRAMADO:'assigned',INATIVO:'inactive'};
   const pill=document.createElement('span');pill.className='av-status '+(styles[d.day_status]||'inactive');pill.textContent=d.day_status;statusCell.append(pill);
   const wrap=document.createElement('div');wrap.className='av-actions';
@@ -47,7 +50,26 @@ async function loadAvailability(){
   cell.append(wrap);
  });
 }
-const availabilitySort={key:'routes_count',dir:-1};$('availability-search').addEventListener('input',()=>loadAvailability().catch(e=>message(e.message,true)));$('refresh-availability').onclick=loadAvailability;$('availability-date').onchange=async()=>{await loadAvailability();await refreshMetrics();};$('availability-category').onchange=loadAvailability;$('availability-profile').onchange=loadAvailability;$('availability-status').onchange=loadAvailability;
+const availabilitySort={key:'name',dir:1};
+function avSelected(id){return [...$(id).querySelectorAll('input:checked')].map(x=>x.value);}
+for(const id of ['availability-category','availability-profile','availability-status']){
+ const el=$(id);const summary=el.querySelector('summary');
+ const update=()=>{const selected=avSelected(id);summary.textContent=selected.length?selected.length===1?el.querySelector('input:checked').parentElement.textContent.trim():selected.length+' selecionados':'Todos';loadAvailability().catch(e=>message(e.message,true));};
+ el.querySelectorAll('input').forEach(c=>c.addEventListener('change',update));
+ el.querySelector('.av-multi-clear').onclick=()=>{el.querySelectorAll('input').forEach(c=>c.checked=false);update();};
+}
+async function loadPreviousRoutes(date){
+ const result=new Map();if(!date)return result;
+ const dt=new Date(date+'T12:00:00Z');dt.setUTCDate(dt.getUTCDate()-1);const prev=dt.toISOString().slice(0,10);
+ try{
+  const first=await rpc('pcd_v8_routes',{p_search:'',p_date:prev,p_limit:100,p_offset:0});
+  const total=Number(first.total)||0;const all=[...(first.rows||[])];
+  for(let offset=100;offset<total;offset+=100){const next=await rpc('pcd_v8_routes',{p_search:'',p_date:prev,p_limit:100,p_offset:offset});all.push(...(next.rows||[]));}
+  for(const r of all){if(String(r.route_date||'').slice(0,10)!==prev||!r.driver_id||norm(r.route_status)==='NAOEMBARCOU')continue;const k=String(r.driver_id);if(!result.has(k))result.set(k,[]);result.get(k).push(r);}
+ }catch(e){console.warn('Consulta de rota anterior indisponível:',e);message('Não foi possível consultar as rotas anteriores: '+e.message,true);}
+ return result;
+}
+$('availability-search').addEventListener('input',()=>loadAvailability().catch(e=>message(e.message,true)));$('refresh-availability').onclick=loadAvailability;$('availability-date').onchange=async()=>{await loadAvailability();await refreshMetrics();};
 
 // V13: percorre TODAS as páginas do RPC existente antes de filtrar e totalizar.
 // Não soma somente os 50 registros visíveis; não altera o banco.
