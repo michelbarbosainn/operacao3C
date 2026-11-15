@@ -51,7 +51,7 @@ const availabilitySort={key:'routes_count',dir:-1};$('availability-search').addE
 
 // V13: percorre TODAS as páginas do RPC existente antes de filtrar e totalizar.
 // Não soma somente os 50 registros visíveis; não altera o banco.
-let v13Filtered=[],v13Complement=true,v13Pending=false,v13Loaded=new Set();
+let v13Filtered=[],v13Loaded=new Set(),routeSort={index:null,dir:-1};
 async function v13FetchAll(search){
  const first=await rpc('pcd_v8_routes',{p_search:search,p_date:null,p_limit:50,p_offset:0});
  const total=Number(first.total)||0,all=[...(first.rows||[])];
@@ -71,9 +71,15 @@ function v13RenderSummary(data){
  $('route-summary').innerHTML=cards.map(([label,value])=>`<div class="v13-card"><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join('');
  // Sem perfil do motorista retornado pela consulta, a oportunidade permanece conservadora (não presumida).
 }
-$('route-pending').title='Rotas EMPLACAR ou PROGRAMADO; não equivale a filtro de carregamento pendente.';
-$('route-pending').onclick=()=>{v13Pending=!v13Pending;$('route-pending').classList.toggle('v13-selected',v13Pending);pages.routes=0;loadRoutes('routes').catch(e=>message(e.message,true));};
-
+function selectedRouteStatuses(){return [...document.querySelectorAll('#route-status-menu input[type="checkbox"]:checked')].map(x=>x.value);}
+function updateRouteStatusLabel(){const a=selectedRouteStatuses();$('route-status-label').textContent=a.length?a.join(', '):'Todos os status';}
+document.querySelectorAll('#route-status-menu input[type="checkbox"]').forEach(x=>x.addEventListener('change',()=>{updateRouteStatusLabel();pages.routes=0;loadRoutes('routes').catch(e=>message(e.message,true));}));
+$('route-status-clear').onclick=()=>{document.querySelectorAll('#route-status-menu input[type="checkbox"]').forEach(x=>x.checked=false);updateRouteStatusLabel();pages.routes=0;loadRoutes('routes').catch(e=>message(e.message,true));};
+// Remover apenas a data ISO indevidamente concatenada ao complemento pelo backend.
+// Não inferir complemento a partir da data da solicitação.
+function routeComplement(r){const raw=String(r.complement??'').trim();return raw.replace(/(?:\s*[·|;,]\s*|\s+)\d{4}-\d{2}-\d{2}\s*$/,'').replace(/^\d{4}-\d{2}-\d{2}$/,'').trim()||'—';}
+const routeSortFields=[r=>r.plan_number,r=>routeComplement(r),r=>r.route_date,r=>r.loading_on,r=>r.loading_time,r=>r.city,r=>r.gross_weight,r=>r.merchandise_value,r=>r.delivery_count,r=>r.vehicle_profile,r=>r.driver_name,r=>r.plate,r=>routeDisplayStatus(r),r=>v13Loaded.has(Number(r.id))?1:0,r=>r.gm_status];
+function sortRouteRows(rows){if(routeSort.index===null)return rows;const key=routeSortFields[routeSort.index];return rows.sort((a,b)=>{const x=key(a),y=key(b);const numeric=[6,7,8,13].includes(routeSort.index);const cmp=numeric?(Number(x||0)-Number(y||0)):String(x??'').localeCompare(String(y??''),'pt-BR',{numeric:true,sensitivity:'base'});return (cmp||String(a.plan_number).localeCompare(String(b.plan_number),'pt-BR',{numeric:true}))*routeSort.dir;});}
 // V13.2: painel independente. Consulta global paginada; nenhuma escrita no banco.
 async function loadOperationalSummary(){
  const start=$('ops-date-start').value,end=$('ops-date-end').value;
@@ -82,7 +88,7 @@ async function loadOperationalSummary(){
  const info=$('ops-info');info.textContent='Consultando todas as rotas...';
  try{
   const all=await v13FetchAll('');
-  const data=all.filter(r=>(!start||String(r.route_date||'').slice(0,10)>=start)&&(!end||String(r.route_date||'').slice(0,10)<=end)&&(!profile||norm(r.vehicle_profile)===profile)&&(!driver||norm(r.driver_name).includes(driver)));
+  const data=all.filter(r=>(!routeDate||String(r.route_date||'').slice(0,10)===routeDate)&&(!requestDate||String(r.request_date||'').slice(0,10)===requestDate)&&(!profile||norm(r.vehicle_profile)===profile)&&(!driver||norm(r.driver_name).includes(driver)));
   const active=data.filter(r=>routeDisplayStatus(r)!=='NÃO EMBARCOU');
   const sum=(arr,key)=>arr.reduce((n,r)=>n+(Number(r[key])||0),0);
   const countStatus=name=>data.filter(r=>routeDisplayStatus(r)===name).length;
@@ -104,15 +110,15 @@ $('ops-refresh').onclick=()=>loadOperationalSummary().catch(e=>message(e.message
 async function loadRoutes(which){
  const prefix=which==='sac'?'sac':'route';
  const search=$(prefix+'-search').value.trim();
- const profileFilter=$(prefix+'-profile')?.value||'',statusFilter=$(prefix+'-status')?.value||'';
+ const profileFilter=$(prefix+'-profile')?.value||'',statusFilter=which==='routes'?'':($(prefix+'-status')?.value||'');
  let a,data;
  if(which==='routes'){
-  const start=$('route-date-start').value,end=$('route-date-end').value,driver=norm($('route-driver').value);
-  if(start&&end&&start>end)throw Error('Data inicial não pode ser posterior à final.');
+  const routeDate=$('route-date').value,requestDate=$('route-request-date').value,driver=norm($('route-driver').value);
   const all=await v13FetchAll(search);
-  const filtered=all.filter(r=>(!start||String(r.route_date||'').slice(0,10)>=start)&&(!end||String(r.route_date||'').slice(0,10)<=end)&&(!profileFilter||norm(r.vehicle_profile)===norm(profileFilter))&&(!statusFilter||routeDisplayStatus(r)===statusFilter)&&(!driver||norm(r.driver_name).includes(driver))&&(!v13Pending||routeDisplayStatus(r)==='EMPLACAR'||routeDisplayStatus(r)==='PROGRAMADO'));
-  totals.routes=filtered.length;v13Filtered=filtered;v13RenderSummary(filtered);
-  a={total:filtered.length};data=filtered.slice(pages.routes*50,(pages.routes+1)*50);
+  const selectedStatuses=selectedRouteStatuses();
+  const filtered=all.filter(r=>(!routeDate||String(r.route_date||'').slice(0,10)===routeDate)&&(!requestDate||String(r.request_date||'').slice(0,10)===requestDate)&&(!profileFilter||norm(r.vehicle_profile)===norm(profileFilter))&&(!selectedStatuses.length||selectedStatuses.includes(routeDisplayStatus(r)))&&(!driver||norm(r.driver_name).includes(driver)));
+  totals.routes=filtered.length;v13Filtered=sortRouteRows(filtered);v13RenderSummary(filtered);
+  a={total:filtered.length};data=v13Filtered.slice(pages.routes*50,(pages.routes+1)*50);
   $('route-filter-info').textContent=filtered.length.toLocaleString('pt-BR')+' rotas nos filtros';
  }else{
   const date=$('sac-date').value.trim(),isoDate=date?isoDateBR(date):null;
@@ -126,9 +132,9 @@ async function loadRoutes(which){
  if(which==='routes')for(const id of loadedIds)v13Loaded.add(id);
  if(which==='routes')window.innovaVisibleLoadedIds=loadedIds;
  if(which==='routes')window.innovaVisibleProgramRows=data.map(r=>({...r}));
- target.innerHTML=table(headers,data.map(r=>which==='routes'?[r.plan_number,[r.complement,r.request_date].filter(Boolean).join(' · '),brDate(r.route_date),brDate(r.loading_on),r.loading_time||'—',r.city,r.gross_weight,r.merchandise_value,r.delivery_count,r.vehicle_profile,r.driver_name,r.plate,routeDisplayStatus(r),'',r.gm_status]:[r.plan_number,r.complement,brDate(r.request_date),brDate(r.route_date),brDate(r.loading_on),r.loading_time||'—',r.city,r.vehicle_profile,r.gross_weight,r.delivery_count,r.merchandise_value,r.driver_name,r.plate,routeDisplayStatus(r),loadedIds.has(Number(r.id))?'CARREGADO':'PENDENTE',r.gm_status]));
+ target.innerHTML=table(headers,data.map(r=>which==='routes'?[r.plan_number,routeComplement(r),brDate(r.route_date),brDate(r.loading_on),r.loading_time||'—',r.city,r.gross_weight,r.merchandise_value,r.delivery_count,r.vehicle_profile,r.driver_name,r.plate,routeDisplayStatus(r),'',r.gm_status]:[r.plan_number,r.complement,brDate(r.request_date),brDate(r.route_date),brDate(r.loading_on),r.loading_time||'—',r.city,r.vehicle_profile,r.gross_weight,r.delivery_count,r.merchandise_value,r.driver_name,r.plate,routeDisplayStatus(r),loadedIds.has(Number(r.id))?'CARREGADO':'PENDENTE',r.gm_status]));
  if(which==='routes'){
-  const h=target.querySelector('thead th:nth-child(2)');h.innerHTML='';const b=document.createElement('button');b.type='button';b.className='v13-complement-toggle';b.textContent=v13Complement? '− Complemento':'+ Complemento';b.onclick=()=>{v13Complement=!v13Complement;target.classList.toggle('v13-hide-complement',!v13Complement);b.textContent=v13Complement?'− Complemento':'+ Complemento';};h.append(b);target.classList.toggle('v13-hide-complement',!v13Complement);
+  target.querySelectorAll('thead th').forEach((th,i)=>{th.classList.add('route-sortable');th.tabIndex=0;th.setAttribute('role','button');th.title='Ordenar por esta coluna';const arrow=document.createElement('span');arrow.className='route-sort-arrow';arrow.textContent=routeSort.index===i?(routeSort.dir===-1?' ▼':' ▲'):' ↕';th.append(arrow);const change=()=>{routeSort={index:i,dir:routeSort.index===i?-routeSort.dir:-1};pages.routes=0;loadRoutes('routes').catch(e=>message(e.message,true));};th.onclick=change;th.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();change();}};});
  }
  target.querySelectorAll('tbody tr').forEach((tr,i)=>{
   const r=data[i];
@@ -1080,7 +1086,7 @@ async function exportProgramPDF(){
    doc.setFillColor(...navy);doc.rect(0,0,297,27,'F');doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(15);doc.text('INNOVA  |  PLANO DE EMBARQUE',10,12);
    doc.setFont('helvetica','normal');doc.setFontSize(8);doc.text('3 Corações  ·  Sumaré/SP',10,19);doc.text('Emitido: '+dt,286,19,{align:'right'});
    doc.setTextColor(...ink);doc.setFont('helvetica','bold');doc.setFontSize(9);doc.text('VEÍCULOS  '+count,10,34);doc.text('PESO  '+weight.toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg',78,34);doc.text('ENTREGAS  '+deliveries,163,34);
-   doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(...muted);doc.text('Data: '+([brDate($('route-date-start').value),brDate($('route-date-end').value)].join(' a '))+'   ·   Perfil: '+($('route-profile').value||'Todos')+'   ·   Status: '+($('route-status').value||'Todos')+'   ·   Ordem: carregamento crescente',10,40);
+   doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(...muted);doc.text('Data: '+('Rota '+brDate($('route-date').value)+' · Solicitação '+brDate($('route-request-date').value))+'   ·   Perfil: '+($('route-profile').value||'Todos')+'   ·   Status: '+(selectedRouteStatuses().join(', ')||'Todos')+'   ·   Ordem: carregamento crescente',10,40);
   };
   head();
   const body=items.map((r,i)=>[String(i+1),brDate(r.loading_on),String(r.loading_time||'—'),String(r.plan_number||''),String(r.city||''),String(r.vehicle_profile||''),Number(r.gross_weight||0).toLocaleString('pt-BR',{maximumFractionDigits:2}),String(r.delivery_count||0),String(r.driver_name||'—'),String(r.plate||'—'),loaded.has(Number(r.id))?'CARREGADO':'PENDENTE']);
@@ -1092,7 +1098,7 @@ async function exportProgramPDF(){
    didParseCell:data=>{if(data.section==='body'&&data.column.index===10&&data.cell.raw==='CARREGADO'){data.cell.styles.textColor=green;data.cell.styles.fontStyle='bold';data.cell.styles.fillColor=[229,246,235];}},
    didDrawPage:()=>{const page=doc.internal.getCurrentPageInfo().pageNumber;if(page>1)head();doc.setFontSize(7);doc.setTextColor(...muted);doc.text('INNOVA  ·  Plano de embarque  ·  Página '+page,287,202,{align:'right'});}
   });
-  const name='INNOVA_PLANO_EMBARQUE_'+($('route-date-start').value||today()).replace(/\//g,'-')+'.pdf';doc.save(name);
+  const name='INNOVA_PLANO_EMBARQUE_'+($('route-date').value||today()).replace(/\//g,'-')+'.pdf';doc.save(name);
  }catch(e){message(e.message,true);}finally{btn.disabled=false;btn.textContent=old;}
 }
 $('program-pdf').onclick=exportProgramPDF;

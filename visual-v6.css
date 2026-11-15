@@ -233,3 +233,21 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 
 /* V13.2 - Resumo operacional independente */
 .ops-panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:18px}.ops-panels>div{min-width:0}.ops-panels h3,#panel-operational-summary h3{font-size:14px;font-weight:600;color:#173958;margin:10px 0}.ops-panels .scroll{max-height:340px;overflow:auto}@media(max-width:800px){.ops-panels{grid-template-columns:1fr}}
+
+/* V13.7: filtros de seleção múltipla e tabela compacta/ordenável */
+#route-status-menu{position:relative;min-width:155px}
+#route-status-menu>summary{cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:215px;border:1px solid #d4dfe9;border-radius:6px;padding:10px;background:#fff;font-size:12px;list-style-position:inside}
+#route-status-menu .route-status-options{position:absolute;z-index:30;top:100%;left:0;min-width:190px;padding:10px;background:#fff;border:1px solid #cbd8e5;box-shadow:0 8px 22px #1234;border-radius:7px}
+#route-status-menu .route-status-options label{display:flex;align-items:center;gap:7px;padding:5px;font-size:12px;white-space:nowrap;cursor:pointer}
+#route-status-menu .route-status-options input{width:15px;height:15px;margin:0}
+#route-status-menu .route-status-options button{margin-top:7px;font-size:11px;padding:5px 9px}
+#route-table th.route-sortable{cursor:pointer;user-select:none}
+#route-table th.route-sortable:hover{background:#e5f0f7}
+#route-table .route-sort-arrow{font-size:9px;color:#7895a8;white-space:nowrap}
+#route-table table{table-layout:auto;width:100%}
+#route-table th:nth-child(2),#route-table td:nth-child(2){width:95px;min-width:70px;max-width:115px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#route-table td:nth-child(2){font-size:10px}
+#route-table th:nth-child(2){white-space:normal;line-height:1.2}
+#route-table th,#route-table td{padding-left:6px!important;padding-right:6px!important}
+#route-table td:nth-child(6){max-width:110px}
+#route-table td:nth-child(11){max-width:135px}
