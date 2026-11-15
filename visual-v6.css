@@ -224,3 +224,12 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 #route-driver-summary{margin-top:18px;overflow:auto}
 #route-driver-summary table{width:100%}
 #route-table thead th{position:sticky;top:0;z-index:1}
+
+/* V13.1: alinhamento e leitura limpa da programação */
+#route-table .driver-picker-trigger{background:transparent!important;color:inherit!important;border:0!important;box-shadow:none!important;padding:2px 3px!important;font:inherit!important;font-weight:400!important;text-align:left!important;cursor:pointer}
+#route-table .load-check{display:flex;justify-content:center;align-items:center}
+#route-table .load-check input{width:16px;height:16px;margin:0;cursor:pointer}
+#route-table th:nth-child(2) .v13-complement-toggle{white-space:nowrap}
+
+/* V13.2 - Resumo operacional independente */
+.ops-panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:18px}.ops-panels>div{min-width:0}.ops-panels h3,#panel-operational-summary h3{font-size:14px;font-weight:600;color:#173958;margin:10px 0}.ops-panels .scroll{max-height:340px;overflow:auto}@media(max-width:800px){.ops-panels{grid-template-columns:1fr}}

@@ -14,7 +14,7 @@ $('google-login').onclick=async()=>{try{if(!db)throw Error('Supabase não config
 $('logout').onclick=async()=>{await db.auth.signOut();location.reload();};
 
 async function refreshMetrics(){const a=await rpc('pcd_dashboard');$('metric-routes').textContent=a.total_routes;const day=$('availability-date').value||today();drivers=await rpc('pcd_v8_drivers',{p_date:day});$('metric-drivers').textContent=drivers.length;$('metric-available').textContent=drivers.filter(d=>d.day_status==='DISPONIVEL').length;$('metric-assigned').textContent=drivers.filter(d=>d.day_status==='PROGRAMADO').length;}
-async function showTab(t){if(t==='finance-params'&&$('finance-params-nav').classList.contains('hidden')){message('Acesso restrito ao administrador.',true);return;}tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','finance-params','availability','sac','occurrences','recipients','reasons'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='billing')await loadBilling();if(t==='finance-params')await loadFinanceParams();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
+async function showTab(t){if(t==='finance-params'&&$('finance-params-nav').classList.contains('hidden')){message('Acesso restrito ao administrador.',true);return;}tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','finance-params','availability','sac','occurrences','recipients','reasons','operational-summary'])$('panel-+x).classList.toggle('hidden',x!==t);try{if(t==='operational-summary')await loadOperationalSummary();if(t==='billing')await loadBilling();if(t==='finance-params')await loadFinanceParams();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 const sideToggle=$('sidebar-toggle'),cadToggle=$('cadastros-toggle'),cadMenu=$('cadastros-submenu');
 sideToggle.onclick=()=>{const collapsed=document.body.classList.toggle('sidebar-collapsed');sideToggle.title=collapsed?'Expandir menu':'Recolher menu';sideToggle.querySelector('span').textContent=collapsed?'Expandir menu':'Recolher menu';};
@@ -51,7 +51,7 @@ const availabilitySort={key:'routes_count',dir:-1};$('availability-search').addE
 
 // V13: percorre TODAS as páginas do RPC existente antes de filtrar e totalizar.
 // Não soma somente os 50 registros visíveis; não altera o banco.
-let v13Filtered=[],v13Complement=false,v13Pending=false,v13DriverView=false,v13Loaded=new Set();
+let v13Filtered=[],v13Complement=false,v13Pending=false,v13Loaded=new Set();
 async function v13FetchAll(search){
  const first=await rpc('pcd_v8_routes',{p_search:search,p_date:null,p_limit:50,p_offset:0});
  const total=Number(first.total)||0,all=[...(first.rows||[])];
@@ -70,11 +70,37 @@ function v13RenderSummary(data){
  const cards=[['Rotas ofertadas',data.length.toLocaleString('pt-BR')],['Peso total',sum(active,'gross_weight').toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg'],['Entregas totais',sum(active,'delivery_count').toLocaleString('pt-BR')],['Valor mercadoria',sum(active,'merchandise_value').toLocaleString('pt-BR',{style:'currency',currency:'BRL'})],['Oportunidades',opp+' confirmadas'],['Não embarcaram',data.length-active.length]];
  $('route-summary').innerHTML=cards.map(([label,value])=>`<div class="v13-card"><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join('');
  // Sem perfil do motorista retornado pela consulta, a oportunidade permanece conservadora (não presumida).
- if(v13DriverView){const groups=new Map();for(const r of data){const name=r.driver_name||'Sem motorista';const item=groups.get(name)||{name,count:0,last:''};item.count++;if(String(r.route_date||'')>item.last)item.last=String(r.route_date||'');groups.set(name,item);}const sorted=[...groups.values()].sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name,'pt-BR'));$('route-driver-summary').innerHTML='<h3>Rotas por motorista</h3>'+table(['Motorista','Rotas','Última data'],sorted.map(x=>[x.name,x.count,brDate(x.last)]));$('route-driver-summary').classList.remove('hidden');}else $('route-driver-summary').classList.add('hidden');
 }
 $('route-pending').title='Rotas EMPLACAR ou PROGRAMADO; não equivale a filtro de carregamento pendente.';
 $('route-pending').onclick=()=>{v13Pending=!v13Pending;$('route-pending').classList.toggle('v13-selected',v13Pending);pages.routes=0;loadRoutes('routes').catch(e=>message(e.message,true));};
-$('route-driver-view').onclick=()=>{v13DriverView=!v13DriverView;$('route-driver-view').classList.toggle('v13-selected',v13DriverView);v13RenderSummary(v13Filtered);};
+
+// V13.2: painel independente. Consulta global paginada; nenhuma escrita no banco.
+async function loadOperationalSummary(){
+ const start=$('ops-date-start').value,end=$('ops-date-end').value;
+ if(start&&end&&start>end)throw Error('A data inicial não pode ser posterior à final.');
+ const profile=norm($('ops-profile').value),driver=norm($('ops-driver').value);
+ const info=$('ops-info');info.textContent='Consultando todas as rotas...';
+ try{
+  const all=await v13FetchAll('');
+  const data=all.filter(r=>(!start||String(r.route_date||'').slice(0,10)>=start)&&(!end||String(r.route_date||'').slice(0,10)<=end)&&(!profile||norm(r.vehicle_profile)===profile)&&(!driver||norm(r.driver_name).includes(driver)));
+  const active=data.filter(r=>routeDisplayStatus(r)!=='NÃO EMBARCOU');
+  const sum=(arr,key)=>arr.reduce((n,r)=>n+(Number(r[key])||0),0);
+  const countStatus=name=>data.filter(r=>routeDisplayStatus(r)===name).length;
+  const opp=active.filter(r=>{const offered=PROFILE_ORDER.indexOf(norm(r.vehicle_profile));const actual=PROFILE_ORDER.indexOf(norm(r.driver_profile||r.assigned_profile||''));return offered>=0&&actual>=0&&actual<offered&&!!r.driver_name;}).length;
+  const fmt=n=>n.toLocaleString('pt-BR');
+  const cards=[['Rotas ofertadas',fmt(data.length)],['Programadas',fmt(countStatus('PROGRAMADO'))],['A emplacar',fmt(countStatus('EMPLACAR'))],['Não embarcaram',fmt(countStatus('NÃO EMBARCOU'))],['Taxa de programação',data.length?(countStatus('PROGRAMADO')/data.length*100).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'],['Peso operacional',fmt(sum(active,'gross_weight'))+' kg'],['Entregas operacionais',fmt(sum(active,'delivery_count'))],['Mercadoria operacional',sum(active,'merchandise_value').toLocaleString('pt-BR',{style:'currency',currency:'BRL'})],['Oportunidades verificáveis',fmt(opp)]];
+  $('ops-kpis').innerHTML=cards.map(([label,value])=>`<div class="v13-card"><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join('');
+  const statuses=new Map(),profiles=new Map(),groups=new Map();
+  for(const r of data){const st=routeDisplayStatus(r),pf=r.vehicle_profile||'Sem perfil',name=r.driver_name||'Sem motorista';statuses.set(st,(statuses.get(st)||0)+1);profiles.set(pf,(profiles.get(pf)||0)+1);const g=groups.get(name)||{name,count:0,last:''};g.count++;if(String(r.route_date||'')>g.last)g.last=String(r.route_date||'');groups.set(name,g);}
+  $('ops-status').innerHTML=table(['Status','Rotas'],[...statuses].sort((a,b)=>b[1]-a[1]));
+  $('ops-profiles').innerHTML=table(['Perfil','Rotas'],[...profiles].sort((a,b)=>b[1]-a[1]));
+  $('ops-drivers').innerHTML=table(['Motorista','Rotas','Última data'],[...groups.values()].sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name,'pt-BR')).map(x=>[x.name,x.count,brDate(x.last)]));
+  info.textContent=fmt(data.length)+' rotas encontradas · Consulta concluída';
+ }catch(e){info.textContent='Não foi possível atualizar o resumo: '+e.message;throw e;}
+}
+$('ops-filter').onclick=()=>loadOperationalSummary().catch(e=>message(e.message,true));
+$('ops-refresh').onclick=()=>loadOperationalSummary().catch(e=>message(e.message,true));
+
 async function loadRoutes(which){
  const prefix=which==='sac'?'sac':'route';
  const search=$(prefix+'-search').value.trim();
@@ -93,20 +119,24 @@ async function loadRoutes(which){
   a=await rpc('pcd_v8_routes',{p_search:search,p_date:isoDate,p_limit:50,p_offset:pages[which]*50});totals[which]=a.total;
   data=(a.rows||[]).filter(r=>(!profileFilter||norm(r.vehicle_profile)===norm(profileFilter))&&(!statusFilter||routeDisplayStatus(r)===statusFilter));
  }
- const headers=['Plano','Complemento','Solicitação','Data rota','Data car.','Hora car.','Cidade','Perfil','Peso','Entregas','Valor NF','Motorista','Placa','Status rota','Carregado','GreenMile'];
+ const headers=which==='routes'?['Plano','Complemento Solicitação','Data rota','Data car.','Hora car.','Cidade','Peso','Valor NF','Entregas','Perfil','Motorista','Placa','Status rota','Carregado','GreenMile']:['Plano','Complemento','Solicitação','Data rota','Data car.','Hora car.','Cidade','Perfil','Peso','Entregas','Valor NF','Motorista','Placa','Status rota','Carregado','GreenMile'];
  const target=$(which==='sac'?'sac-table':'route-table');
  const loadingStates=which==='routes'&&data.length?await rpc('pcd_v10_loading_states',{p_route_ids:data.map(r=>Number(r.id))}):[];
  const loadedIds=new Set((loadingStates||[]).filter(x=>x.is_loaded).map(x=>Number(x.route_id)));
  if(which==='routes')for(const id of loadedIds)v13Loaded.add(id);
  if(which==='routes')window.innovaVisibleLoadedIds=loadedIds;
  if(which==='routes')window.innovaVisibleProgramRows=data.map(r=>({...r}));
- target.innerHTML=table(headers,data.map(r=>[r.plan_number,r.complement,brDate(r.request_date),brDate(r.route_date),brDate(r.loading_on),r.loading_time||'—',r.city,r.vehicle_profile,r.gross_weight,r.delivery_count,r.merchandise_value,r.driver_name,r.plate,routeDisplayStatus(r),loadedIds.has(Number(r.id))?'CARREGADO':'PENDENTE',r.gm_status]));
+ target.innerHTML=table(headers,data.map(r=>which==='routes'?[r.plan_number,[r.complement,r.request_date].filter(Boolean).join(' · '),brDate(r.route_date),brDate(r.loading_on),r.loading_time||'—',r.city,r.gross_weight,r.merchandise_value,r.delivery_count,r.vehicle_profile,r.driver_name,r.plate,routeDisplayStatus(r),'',r.gm_status]:[r.plan_number,r.complement,brDate(r.request_date),brDate(r.route_date),brDate(r.loading_on),r.loading_time||'—',r.city,r.vehicle_profile,r.gross_weight,r.delivery_count,r.merchandise_value,r.driver_name,r.plate,routeDisplayStatus(r),loadedIds.has(Number(r.id))?'CARREGADO':'PENDENTE',r.gm_status]));
  if(which==='routes'){
   const h=target.querySelector('thead th:nth-child(2)');h.innerHTML='';const b=document.createElement('button');b.type='button';b.className='v13-complement-toggle';b.textContent=v13Complement? '− Complemento':'+ Complemento';b.onclick=()=>{v13Complement=!v13Complement;target.classList.toggle('v13-hide-complement',!v13Complement);b.textContent=v13Complement?'− Complemento':'+ Complemento';};h.append(b);target.classList.toggle('v13-hide-complement',!v13Complement);
  }
  target.querySelectorAll('tbody tr').forEach((tr,i)=>{
-  const r=data[i];tr.children[9].textContent=r.merchandise_value==null?'—':Number(r.merchandise_value).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-  const count=Number(r.delivery_count)||0;tr.children[9].innerHTML='';const badge=document.createElement('span');badge.className='complexity '+(count===1?'low':count<=10?'mid':'high');badge.textContent=count+' '+(count===1?'●':count<=10?'◆':'▲');badge.title=count===1?'Entrega única':count<=10?'Complexidade intermediária':'Alta complexidade';tr.children[9].append(badge);
+  const r=data[i];
+  const valueCell=tr.children[which==='routes'?7:10];
+  valueCell.textContent=r.merchandise_value==null?'—':Number(r.merchandise_value).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+  const count=Number(r.delivery_count)||0;
+  const deliveriesCell=tr.children[which==='routes'?8:9];deliveriesCell.textContent='';
+  const badge=document.createElement('span');badge.className='complexity '+(count===1?'low':count<=10?'mid':'high');badge.textContent=count+' '+(count===1?'●':count<=10?'◆':'▲');badge.title=count===1?'Entrega única':count<=10?'Complexidade intermediária':'Alta complexidade';deliveriesCell.append(badge);
   if(which==='routes'){
    const cell=tr.children[0],wrap=document.createElement('div');wrap.className='plan-whatsapp-wrap';
    const plan=document.createElement('span');plan.textContent=r.plan_number||'—';
@@ -119,10 +149,10 @@ async function loadRoutes(which){
    wrap.append(plan,wa);cell.textContent='';cell.append(wrap);
   }
   if(which==='sac'){const plan=document.createElement('button');plan.className='plan-link';plan.textContent=r.plan_number;plan.onclick=()=>openPlanInvoices(r);tr.children[0].textContent='';tr.children[0].append(plan);}
-  const dateCell=tr.children[3],dateButton=document.createElement('button');dateButton.className='driver-inline';dateButton.textContent=brDate(r.route_date);dateButton.title='Reprogramar com justificativa';dateButton.disabled=!r.is_active;dateButton.onclick=()=>openReschedule(r);dateCell.textContent='';dateCell.append(dateButton);
-  const statusCell=tr.children[13],pill=document.createElement('span'),status=routeDisplayStatus(r);pill.className='route-pill '+(status==='PROGRAMADO'?'programmed':status==='EMPLACAR'?'toassign':status==='NÃO EMBARCOU'?'notboarded':'other');pill.textContent=status;statusCell.textContent='';statusCell.append(pill);
+  const dateCell=tr.children[which==='routes'?2:3],dateButton=document.createElement('button');dateButton.className='driver-inline';dateButton.textContent=brDate(r.route_date);dateButton.title='Reprogramar com justificativa';dateButton.disabled=!r.is_active;dateButton.onclick=()=>openReschedule(r);dateCell.textContent='';dateCell.append(dateButton);
+  const statusCell=tr.children[which==='routes'?12:13],pill=document.createElement('span'),status=routeDisplayStatus(r);pill.className='route-pill '+(status==='PROGRAMADO'?'programmed':status==='EMPLACAR'?'toassign':status==='NÃO EMBARCOU'?'notboarded':'other');pill.textContent=status;statusCell.textContent='';statusCell.append(pill);
   if(which==='routes'){
-   const cityCell=tr.children[6];
+   const cityCell=tr.children[5];
    const cityLink=document.createElement('button');
    cityLink.type='button';cityLink.className='billing-city-link route-city-link';
    cityLink.textContent=r.city||'Consultar cidades';
@@ -134,12 +164,11 @@ async function loadRoutes(which){
    const loadedCell=tr.children[13];loadedCell.textContent='';
    const toggle=document.createElement('label');toggle.className='load-check';
    const check=document.createElement('input');check.type='checkbox';check.checked=loadedIds.has(Number(r.id));check.disabled=!r.is_active||status==='NÃO EMBARCOU';
-   const word=document.createElement('span');word.textContent=check.checked?'Carregado':'Pendente';
-   check.onchange=async()=>{const requested=check.checked;check.disabled=true;try{await rpc('pcd_v10_set_loaded',{p_route_id:Number(r.id),p_is_loaded:requested});word.textContent=requested?'Carregado':'Pendente';if(requested)window.innovaVisibleLoadedIds.add(Number(r.id));else window.innovaVisibleLoadedIds.delete(Number(r.id));v13Loaded[requested?'add':'delete'](Number(r.id));v13RenderSummary(v13Filtered);message('Carregamento atualizado.');}catch(e){check.checked=!requested;message(e.message,true);}finally{check.disabled=!r.is_active||status==='NÃO EMBARCOU';}};
-   toggle.append(check,word);loadedCell.append(toggle);
+   check.onchange=async()=>{const requested=check.checked;check.disabled=true;try{await rpc('pcd_v10_set_loaded',{p_route_id:Number(r.id),p_is_loaded:requested});if(requested)window.innovaVisibleLoadedIds.add(Number(r.id));else window.innovaVisibleLoadedIds.delete(Number(r.id));v13Loaded[requested?'add':'delete'](Number(r.id));v13RenderSummary(v13Filtered);message('Carregamento atualizado.');}catch(e){check.checked=!requested;message(e.message,true);}finally{check.disabled=!r.is_active||status==='NÃO EMBARCOU';}};
+   toggle.append(check);loadedCell.append(toggle);
   }
   if(which==='routes'){
-   const driverCell=tr.children[9],edit=document.createElement('button');edit.className='driver-picker-trigger';edit.textContent=(status==='NÃO EMBARCOU'?'Não embarcou':r.driver_name||'Selecionar motorista')+'  ▾';edit.disabled=!r.is_active;edit.title='Escolher motorista ou registrar não embarque';edit.onclick=()=>inlineAssign(r,driverCell);driverCell.textContent='';driverCell.append(edit);
+   const driverCell=tr.children[10],edit=document.createElement('button');edit.className='driver-picker-trigger';edit.textContent=(status==='NÃO EMBARCOU'?'Não embarcou':r.driver_name||'Selecionar motorista')+'  ▾';edit.disabled=!r.is_active;edit.title='Escolher motorista ou registrar não embarque';edit.onclick=()=>inlineAssign(r,driverCell);driverCell.textContent='';driverCell.append(edit);
   }else if(r.is_active&&status!=='EMPLACAR'&&status!=='NÃO EMBARCOU'){
    const sacBtn=document.createElement('button');sacBtn.className='driver-inline';sacBtn.textContent=r.gm_status||'Atualizar SAC';sacBtn.title='Atualizar acompanhamento SAC';sacBtn.onclick=()=>openSAC(r);tr.children[13].textContent='';tr.children[13].append(sacBtn);
   }
@@ -147,7 +176,7 @@ async function loadRoutes(which){
  $(prefix+'-page').textContent=`${a.total} rotas · página ${pages[which]+1}`;
  $(prefix+'-prev').disabled=pages[which]===0;$(prefix+'-next').disabled=(pages[which]+1)*50>=a.total;
 }
-function routeDisplayStatus(r){const st=norm(r.route_status);if(st==='NAOEMBARCOU')return 'NÃO EMBARCOU';if(st==='PROGRAMAR'||st==='EMPLACAR')return r.driver_name?'PROGRAMADO':'EMPLACAR';if(st==='PROGRAMADO')return 'PROGRAMADO';return r.route_status||(r.driver_name?'PROGRAMADO':'EMPLACAR');}
+function routeDisplayStatus(r){const st=norm(r.route_status);if(st==='NAOEMBARCOU')return 'NÃO EMBARCOU';if(st==='PROGRAMAR'||st==='EMPLACAR')return r.driver_name?'PROGRAMADO':'EMPLACAR';if(st==='PROGRAMADO')return r.driver_name?'PROGRAMADO':'EMPLACAR';return r.route_status||(r.driver_name?'PROGRAMADO':'EMPLACAR');}
 
 for(const which of ['routes','sac']){const prefix=which==='sac'?'sac':'route';$(prefix+'-filter').onclick=()=>{pages[which]=0;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-prev').onclick=()=>{pages[which]--;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-next').onclick=()=>{pages[which]++;loadRoutes(which).catch(e=>message(e.message,true));};$('refresh-'+which).onclick=()=>loadRoutes(which).catch(e=>message(e.message,true));}
 function modal(title,summary,body,fn){$('modal-save').classList.remove('hidden');$('modal-save').textContent='Salvar';$('modal-save').disabled=false;$('modal-title').textContent=title;$('modal-summary').textContent=summary;$('modal-body').innerHTML=body;modalSave=fn;$('modalbg').classList.remove('hidden');}
