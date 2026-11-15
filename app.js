@@ -30,13 +30,20 @@ async function loadAvailability(){
  const previous=await loadPreviousRoutes($('availability-date').value);
  const key=availabilitySort.key,dir=availabilitySort.dir;
  shown.sort((a,b)=>{const av=key==='routes_count'?Number(a.routes_count):String(a[key]??'').toLocaleUpperCase('pt-BR');const bv=key==='routes_count'?Number(b.routes_count):String(b[key]??'').toLocaleUpperCase('pt-BR');const v=typeof av==='number'?av-bv:String(av).localeCompare(String(bv),'pt-BR',{numeric:true});return (v||a.name.localeCompare(b.name,'pt-BR'))*dir;});
- $('availability-table').innerHTML=table(['Motorista','Placa','Perfil','Categoria','Status','Rota anterior','Disponibilidade'],shown.map(d=>[d.name,d.plate,d.profile,d.category,'','','']));
+ $('availability-table').innerHTML=table(['Motorista','Placa','Perfil','Categoria','Status','Status rota anterior','Disponibilidade'],shown.map(d=>[d.name,d.plate,d.profile,d.category,'','','']));
  const columns=['name','plate','profile','category','day_status',null];
  $('availability-table').querySelectorAll('thead th').forEach((th,i)=>{if(i>=columns.length||!columns[i])return;th.style.cursor='pointer';th.title='Clique para ordenar';th.textContent+=(availabilitySort.key===columns[i]?(availabilitySort.dir===1?' ▲':' ▼'):' ↕');th.onclick=()=>{availabilitySort.dir=availabilitySort.key===columns[i]?-availabilitySort.dir:(columns[i]==='routes_count'?-1:1);availabilitySort.key=columns[i];loadAvailability().catch(e=>message(e.message,true));};});
  $('availability-table').querySelectorAll('tbody tr').forEach((tr,i)=>{
   const d=shown[i],statusCell=tr.children[4],cell=tr.lastElementChild;
   const old=previous.get(String(d.id))||[];const prevCell=tr.children[5];
-  if(old.length){const btn=document.createElement('button');btn.type='button';btn.className='av-prev-link';btn.textContent=old.length+' rota'+(old.length>1?'s':'')+' · '+String(old[0].city||old[0].destination||'Ver detalhes');btn.title='Ver programação anterior';btn.onclick=()=>{modal('Rota anterior',d.name+' · '+brDate(old[0].route_date),'<div class=\"av-prev-details\">'+old.map(r=>'<p><b>Plano:</b> '+esc(r.plan_number)+' · <b>Cidade:</b> '+esc(r.city||r.destination||'—')+' · <b>Carregamento:</b> '+esc(brDate(r.loading_on))+' '+esc(r.loading_time||'')+' · <b>Status:</b> '+esc(r.route_status||'—')+'</p>').join('')+'</div>',async()=>{});$('modal-save').classList.add('hidden');};prevCell.append(btn);}else prevCell.textContent='—';
+  if(old.length){
+   const statuses=[...new Set(old.map(r=>routeDisplayStatus(r)))];
+   const priority=['EM ROTA','NÃO EMBARCOU','PROGRAMADO','EMPLACAR','CONCLUÍDO'];
+   const chosen=priority.find(x=>statuses.includes(x))||statuses[0];
+   const btn=document.createElement('button');btn.type='button';btn.className='av-previous-status route-pill '+(chosen==='PROGRAMADO'?'programmed':chosen==='EMPLACAR'?'toassign':chosen==='NÃO EMBARCOU'?'notboarded':'other');
+   btn.textContent=chosen+(old.length>1?' · '+old.length+' rotas':'');btn.title='Status da rota anterior (SAC). Clique para consultar as rotas.';
+   btn.onclick=()=>{modal('Status da rota anterior',d.name+' · '+brDate(old[0].route_date),'<div class="av-prev-details">'+old.map(r=>'<p><b>Plano:</b> '+esc(r.plan_number)+' · <b>Cidade:</b> '+esc(r.city||r.destination||'—')+' · <b>Carregamento:</b> '+esc(brDate(r.loading_on))+' '+esc(r.loading_time||'')+' · <b>Status SAC:</b> '+esc(routeDisplayStatus(r))+'</p>').join('')+'</div>',async()=>{});$('modal-save').classList.add('hidden');};prevCell.append(btn);
+  }else prevCell.textContent='—';
   const styles={DISPONIVEL:'available',INDISPONIVEL:'unavailable',PROGRAMADO:'assigned',INATIVO:'inactive'};
   const pill=document.createElement('span');pill.className='av-status '+(styles[d.day_status]||'inactive');pill.textContent=d.day_status;statusCell.append(pill);
   const wrap=document.createElement('div');wrap.className='av-actions';

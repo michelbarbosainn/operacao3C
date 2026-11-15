@@ -305,3 +305,18 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 #panel-availability .av-multi-options input{width:auto;min-width:0}
 #panel-availability .av-multi-clear{margin-top:6px;font-size:11px}
 #panel-availability .av-prev-link{background:none!important;border:0!important;color:#145c96!important;text-decoration:underline;font-size:11px;padding:3px!important;text-align:left;cursor:pointer;max-width:190px;white-space:normal}
+
+/* V13.13 — correção dos menus e leitura de status SAC */
+#panel-routes .route-compact-filters{grid-template-columns:minmax(175px,2.2fr) minmax(135px,1fr) minmax(135px,1fr) minmax(115px,1fr) minmax(100px,.8fr) minmax(160px,1.2fr) auto!important;overflow:visible!important}
+#panel-routes .route-compact-filters .route-status-filter{position:relative;z-index:6}
+#route-status-menu{position:relative!important;overflow:visible!important}
+#route-status-menu[open]{z-index:50!important}
+#route-status-menu .route-status-options{display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:2px!important;min-width:215px!important;width:max-content!important;max-width:min(290px,calc(100vw - 45px))!important;box-sizing:border-box!important;overflow:visible!important;z-index:80!important;padding:8px!important;background:#fff!important}
+#route-status-menu .route-status-options label{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;gap:9px!important;min-height:29px!important;padding:4px 6px!important;width:100%!important;box-sizing:border-box!important;white-space:nowrap!important;overflow:visible!important;color:#1c3d61!important;font-size:12px!important;font-weight:500!important;line-height:1.4!important}
+#route-status-menu .route-status-options label input[type=checkbox]{appearance:auto!important;-webkit-appearance:checkbox!important;display:inline-block!important;flex:0 0 15px!important;width:15px!important;height:15px!important;min-width:15px!important;max-width:15px!important;margin:0!important;padding:0!important;position:static!important;opacity:1!important;vertical-align:middle!important}
+#route-status-menu .route-status-options button{align-self:flex-start!important}
+#panel-availability .av-previous-status{cursor:pointer;border:0!important;font-size:10px!important;white-space:nowrap!important;max-width:100%;text-overflow:ellipsis;overflow:hidden}
+#panel-availability .av-previous-status:hover{filter:brightness(.94);text-decoration:underline}
+#panel-availability #availability-table td:nth-child(6){min-width:120px}
+@media(max-width:1260px){#panel-routes .route-compact-filters{grid-template-columns:repeat(4,minmax(0,1fr))!important}}
+@media(max-width:690px){#panel-routes .route-compact-filters{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
