@@ -51,19 +51,31 @@ async function loadRoutes(which){
  totals[which]=a.total;
  const profileFilter=$(prefix+'-profile')?.value||'',statusFilter=$(prefix+'-status')?.value||'';
  const data=(a.rows||[]).filter(r=>(!profileFilter||norm(r.vehicle_profile)===norm(profileFilter))&&(!statusFilter||routeDisplayStatus(r)===statusFilter));
- const headers=['Plano','Complemento','Solicitação','Data rota','Cidade','Destino','Perfil','Peso','Entregas','Valor NF','Motorista','Placa','Status rota','GreenMile'];
+ const headers=['Plano','Complemento','Solicitação','Data rota','Data car.','Hora car.','Cidade','Destino','Perfil','Peso','Entregas','Valor NF','Motorista','Placa','Status rota','Carregado','GreenMile'];
  const target=$(which==='sac'?'sac-table':'route-table');
- target.innerHTML=table(headers,data.map(r=>[r.plan_number,r.complement,brDate(r.request_date),brDate(r.route_date),r.city,r.destination,r.vehicle_profile,r.gross_weight,r.delivery_count,r.merchandise_value,r.driver_name,r.plate,routeDisplayStatus(r),r.gm_status]));
+ const loadingStates=which==='routes'&&data.length?await rpc('pcd_v10_loading_states',{p_route_ids:data.map(r=>Number(r.id))}):[];
+ const loadedIds=new Set((loadingStates||[]).filter(x=>x.is_loaded).map(x=>Number(x.route_id)));
+ if(which==='routes')window.innovaVisibleLoadedIds=loadedIds;
+ if(which==='routes')window.innovaVisibleProgramRows=data.map(r=>({...r}));
+ target.innerHTML=table(headers,data.map(r=>[r.plan_number,r.complement,brDate(r.request_date),brDate(r.route_date),brDate(r.loading_on),r.loading_time||'—',r.city,r.destination,r.vehicle_profile,r.gross_weight,r.delivery_count,r.merchandise_value,r.driver_name,r.plate,routeDisplayStatus(r),loadedIds.has(Number(r.id))?'CARREGADO':'PENDENTE',r.gm_status]));
  target.querySelectorAll('tbody tr').forEach((tr,i)=>{
-  const r=data[i];tr.children[9].textContent=r.merchandise_value==null?'—':Number(r.merchandise_value).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-  const count=Number(r.delivery_count)||0;tr.children[8].innerHTML='';const badge=document.createElement('span');badge.className='complexity '+(count===1?'low':count<=10?'mid':'high');badge.textContent=count+' '+(count===1?'●':count<=10?'◆':'▲');badge.title=count===1?'Entrega única':count<=10?'Complexidade intermediária':'Alta complexidade';tr.children[8].append(badge);
+  const r=data[i];tr.children[11].textContent=r.merchandise_value==null?'—':Number(r.merchandise_value).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+  const count=Number(r.delivery_count)||0;tr.children[10].innerHTML='';const badge=document.createElement('span');badge.className='complexity '+(count===1?'low':count<=10?'mid':'high');badge.textContent=count+' '+(count===1?'●':count<=10?'◆':'▲');badge.title=count===1?'Entrega única':count<=10?'Complexidade intermediária':'Alta complexidade';tr.children[10].append(badge);
   if(which==='sac'){const plan=document.createElement('button');plan.className='plan-link';plan.textContent=r.plan_number;plan.onclick=()=>openPlanInvoices(r);tr.children[0].textContent='';tr.children[0].append(plan);}
   const dateCell=tr.children[3],dateButton=document.createElement('button');dateButton.className='driver-inline';dateButton.textContent=brDate(r.route_date);dateButton.title='Reprogramar com justificativa';dateButton.disabled=!r.is_active;dateButton.onclick=()=>openReschedule(r);dateCell.textContent='';dateCell.append(dateButton);
-  const statusCell=tr.children[12],pill=document.createElement('span'),status=routeDisplayStatus(r);pill.className='route-pill '+(status==='PROGRAMADO'?'programmed':status==='EMPLACAR'?'toassign':status==='NÃO EMBARCOU'?'notboarded':'other');pill.textContent=status;statusCell.textContent='';statusCell.append(pill);
+  const statusCell=tr.children[14],pill=document.createElement('span'),status=routeDisplayStatus(r);pill.className='route-pill '+(status==='PROGRAMADO'?'programmed':status==='EMPLACAR'?'toassign':status==='NÃO EMBARCOU'?'notboarded':'other');pill.textContent=status;statusCell.textContent='';statusCell.append(pill);
   if(which==='routes'){
-   const driverCell=tr.children[10],edit=document.createElement('button');edit.className='driver-picker-trigger';edit.textContent=(status==='NÃO EMBARCOU'?'Não embarcou':r.driver_name||'Selecionar motorista')+'  ▾';edit.disabled=!r.is_active;edit.title='Escolher motorista ou registrar não embarque';edit.onclick=()=>inlineAssign(r,driverCell);driverCell.textContent='';driverCell.append(edit);
+   const loadedCell=tr.children[15];loadedCell.textContent='';
+   const toggle=document.createElement('label');toggle.className='load-check';
+   const check=document.createElement('input');check.type='checkbox';check.checked=loadedIds.has(Number(r.id));check.disabled=!r.is_active||status==='NÃO EMBARCOU';
+   const word=document.createElement('span');word.textContent=check.checked?'Carregado':'Pendente';
+   check.onchange=async()=>{const requested=check.checked;check.disabled=true;try{await rpc('pcd_v10_set_loaded',{p_route_id:Number(r.id),p_is_loaded:requested});word.textContent=requested?'Carregado':'Pendente';if(requested)window.innovaVisibleLoadedIds.add(Number(r.id));else window.innovaVisibleLoadedIds.delete(Number(r.id));message('Carregamento atualizado.');}catch(e){check.checked=!requested;message(e.message,true);}finally{check.disabled=!r.is_active||status==='NÃO EMBARCOU';}};
+   toggle.append(check,word);loadedCell.append(toggle);
+  }
+  if(which==='routes'){
+   const driverCell=tr.children[12],edit=document.createElement('button');edit.className='driver-picker-trigger';edit.textContent=(status==='NÃO EMBARCOU'?'Não embarcou':r.driver_name||'Selecionar motorista')+'  ▾';edit.disabled=!r.is_active;edit.title='Escolher motorista ou registrar não embarque';edit.onclick=()=>inlineAssign(r,driverCell);driverCell.textContent='';driverCell.append(edit);
   }else if(r.is_active&&status!=='EMPLACAR'&&status!=='NÃO EMBARCOU'){
-   const sacBtn=document.createElement('button');sacBtn.className='driver-inline';sacBtn.textContent=r.gm_status||'Atualizar SAC';sacBtn.title='Atualizar acompanhamento SAC';sacBtn.onclick=()=>openSAC(r);tr.children[13].textContent='';tr.children[13].append(sacBtn);
+   const sacBtn=document.createElement('button');sacBtn.className='driver-inline';sacBtn.textContent=r.gm_status||'Atualizar SAC';sacBtn.title='Atualizar acompanhamento SAC';sacBtn.onclick=()=>openSAC(r);tr.children[16].textContent='';tr.children[16].append(sacBtn);
   }
  });
  $(prefix+'-page').textContent=`${a.total} rotas · página ${pages[which]+1}`;
@@ -903,3 +915,21 @@ $('billing-prev').onclick=()=>{billingPage=Math.max(0,billingPage-1);loadBilling
 $('billing-next').onclick=()=>{billingPage++;loadBilling().catch(e=>message(e.message,true));};
 
 $('finance-refresh').onclick=()=>loadFinanceParams().catch(e=>message(e.message,true));
+
+// Plano de embarque - PDF da página atualmente filtrada na programação.
+async function exportProgramPDF(){
+ const btn=$('program-pdf');const old=btn.textContent;btn.disabled=true;btn.textContent='Gerando PDF...';
+ try{
+  const items=window.innovaVisibleProgramRows||[];if(!items.length)throw Error('Nenhuma rota na página atual para exportar.');
+  if(!await paymentPdfReady())throw Error('Biblioteca PDF indisponível. Verifique sua conexão.');
+  const doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  const dt=new Date().toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'});
+  doc.setFillColor(8,48,99);doc.rect(0,0,297,29,'F');doc.setTextColor(255,255,255);doc.setFontSize(17);doc.text('PLANO DE EMBARQUE | INNOVA',14,13);doc.setFontSize(9);doc.text('3 Corações · Sumaré/SP',14,20);doc.text('Emitido: '+dt,282,20,{align:'right'});
+  doc.setTextColor(35,52,73);doc.setFontSize(9);doc.text('Filtro data: '+($('route-date').value||'Todas')+'  |  Perfil: '+($('route-profile').value||'Todos')+'  |  Status: '+($('route-status').value||'Todos'),14,36);
+  const loaded=window.innovaVisibleLoadedIds||new Set();
+  const body=items.map((r,i)=>[String(i+1),String(r.plan_number||''),String(r.complement||''),String(r.city||''),String(r.vehicle_profile||''),Number(r.gross_weight||0).toLocaleString('pt-BR',{maximumFractionDigits:2}),String(r.delivery_count||0),String(r.driver_name||'—'),String(r.plate||'—'),brDate(r.loading_on),String(r.loading_time||'—'),routeDisplayStatus(r),loaded.has(Number(r.id))?'CARREGADO':'PENDENTE']);
+  doc.autoTable({startY:41,head:[['#','Plano','Complemento','Cidade','Perfil','Peso (kg)','Entregas','Motorista','Placa','Data car.','Hora car.','Status rota','Carregamento']],body,theme:'grid',styles:{fontSize:7,cellPadding:1.5,overflow:'linebreak',textColor:[35,52,73]},headStyles:{fillColor:[8,48,99],textColor:255,fontStyle:'bold'},alternateRowStyles:{fillColor:[246,249,252]},columnStyles:{0:{cellWidth:7},1:{cellWidth:23},2:{cellWidth:20},3:{cellWidth:29},4:{cellWidth:16},5:{cellWidth:18},6:{cellWidth:15},7:{cellWidth:37},8:{cellWidth:21},9:{cellWidth:20},10:{cellWidth:19},11:{cellWidth:23},12:{cellWidth:25}},margin:{left:8,right:8},didDrawPage:()=>{doc.setFontSize(7);doc.setTextColor(100);doc.text('INNOVA · Plano de embarque · Página '+doc.internal.getNumberOfPages(),285,203,{align:'right'});}});
+  const name='INNOVA_PLANO_EMBARQUE_'+($('route-date').value||today()).replace(/\//g,'-')+'.pdf';doc.save(name);
+ }catch(e){message(e.message,true);}finally{btn.disabled=false;btn.textContent=old;}
+}
+$('program-pdf').onclick=exportProgramPDF;

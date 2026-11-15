@@ -173,3 +173,10 @@
 .picker-list{overflow-y:auto;padding:0 14px 14px}.picker-no-board{display:flex;flex-direction:column;align-items:flex-start;width:100%;border:1px solid #f4d6d6;background:#fff0f0;color:#a33333;border-radius:9px;padding:12px 14px;text-align:left;cursor:pointer;margin-bottom:12px}.picker-no-board small{font-size:11px;color:#965858;margin-top:4px}
 .picker-group{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#73869a;font-weight:600;padding:12px 4px 7px;border-bottom:1px solid #edf1f5}
 .picker-option{width:100%;display:flex;align-items:center;gap:11px;padding:11px 8px;border:0;border-bottom:1px solid #edf1f5;background:white;text-align:left;cursor:pointer;color:#213b55}.picker-option:hover{background:#f5f9fd}.picker-driver-text{display:flex;flex-direction:column;gap:4px}.picker-driver-name{font-weight:550}.picker-driver-text small{color:#728498;font-size:11px}.picker-dot{height:8px;width:8px;border-radius:50%;flex-shrink:0}.picker-dot.yes{background:#22a464}.picker-dot.no{background:#e1a34b}
+
+/* Programação: nome do motorista com aparência de texto da tabela */
+.driver-picker-trigger{background:transparent!important;border:0!important;box-shadow:none!important;padding:2px 3px!important;min-width:0!important;font:inherit!important;font-size:inherit!important;font-weight:400!important;color:inherit!important;text-align:left!important;border-radius:4px!important}
+.driver-picker-trigger:hover{background:#eef4f9!important;color:#173e67!important}
+.load-check{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-size:11px;color:#40566c;cursor:pointer}
+.load-check input{width:15px;height:15px;accent-color:#2e855d;cursor:pointer}
+#program-pdf{white-space:nowrap}
