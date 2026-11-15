@@ -160,3 +160,16 @@
 .billing-filter-grid{grid-template-columns:minmax(145px,1.4fr) repeat(3,minmax(90px,1fr)) repeat(3,minmax(115px,1fr)) auto}
 @media(max-width:1250px){.billing-filter-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:650px){.billing-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* INNOVA · programação limpa e seletor de motoristas */
+.route-pill{display:inline-flex;align-items:center;border-radius:7px;padding:5px 9px;font-size:11px;font-weight:600;white-space:nowrap;letter-spacing:.01em}
+.route-pill.programmed{background:#e6f6ed;color:#17603b}.route-pill.toassign{background:#fff0d7;color:#9b570d}.route-pill.notboarded{background:#fce9e9;color:#a33a3a}.route-pill.other{background:#edf2f8;color:#435c78}
+.driver-picker-trigger{background:#fff;border:1px solid #d7e1ec;color:#28415c;border-radius:8px;padding:7px 11px;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;min-width:155px;text-align:left}
+.driver-picker-trigger:hover{border-color:#5289c0;background:#f7faff}.driver-picker-trigger:disabled{opacity:.55;cursor:default}
+.driver-picker-overlay{position:fixed;inset:0;background:rgba(21,37,57,.28);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px}
+.driver-picker-panel{width:min(100%,460px);max-height:min(78vh,650px);display:flex;flex-direction:column;overflow:hidden;border:1px solid #dce4ee;background:white;border-radius:14px;box-shadow:0 22px 65px rgba(20,44,73,.2);font-size:13px}
+.picker-heading{display:flex;justify-content:space-between;align-items:center;padding:16px 18px;font-weight:600;color:#29425c}.picker-close{background:transparent;border:0;color:#6d8095;font-size:24px;cursor:pointer}
+.picker-search{margin:0 16px 12px;width:calc(100% - 32px)!important;box-sizing:border-box;border:1px solid #d5e1ec;border-radius:8px;padding:11px;font-size:13px}
+.picker-list{overflow-y:auto;padding:0 14px 14px}.picker-no-board{display:flex;flex-direction:column;align-items:flex-start;width:100%;border:1px solid #f4d6d6;background:#fff0f0;color:#a33333;border-radius:9px;padding:12px 14px;text-align:left;cursor:pointer;margin-bottom:12px}.picker-no-board small{font-size:11px;color:#965858;margin-top:4px}
+.picker-group{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#73869a;font-weight:600;padding:12px 4px 7px;border-bottom:1px solid #edf1f5}
+.picker-option{width:100%;display:flex;align-items:center;gap:11px;padding:11px 8px;border:0;border-bottom:1px solid #edf1f5;background:white;text-align:left;cursor:pointer;color:#213b55}.picker-option:hover{background:#f5f9fd}.picker-driver-text{display:flex;flex-direction:column;gap:4px}.picker-driver-name{font-weight:550}.picker-driver-text small{color:#728498;font-size:11px}.picker-dot{height:8px;width:8px;border-radius:50%;flex-shrink:0}.picker-dot.yes{background:#22a464}.picker-dot.no{background:#e1a34b}
