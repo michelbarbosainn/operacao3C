@@ -176,7 +176,7 @@ async function loadRoutes(which){
  $(prefix+'-page').textContent=`${a.total} rotas · página ${pages[which]+1}`;
  $(prefix+'-prev').disabled=pages[which]===0;$(prefix+'-next').disabled=(pages[which]+1)*50>=a.total;
 }
-function routeDisplayStatus(r){const st=norm(r.route_status);if(st==='NAOEMBARCOU')return 'NÃO EMBARCOU';if(st==='PROGRAMAR'||st==='EMPLACAR')return r.driver_name?'PROGRAMADO':'EMPLACAR';if(st==='PROGRAMADO')return r.driver_name?'PROGRAMADO':'EMPLACAR';return r.route_status||(r.driver_name?'PROGRAMADO':'EMPLACAR');}
+function routeDisplayStatus(r){const st=norm(r.route_status);if(st==='NAOEMBARCOU')return 'NÃO EMBARCOU';if(st==='PROGRAMAR'||st==='EMPLACAR')return (r.driver_name||r.driver_id)?'PROGRAMADO':'EMPLACAR';if(st==='PROGRAMADO')return (r.driver_name||r.driver_id)?'PROGRAMADO':'EMPLACAR';return r.route_status||((r.driver_name||r.driver_id)?'PROGRAMADO':'EMPLACAR');}
 
 for(const which of ['routes','sac']){const prefix=which==='sac'?'sac':'route';$(prefix+'-filter').onclick=()=>{pages[which]=0;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-prev').onclick=()=>{pages[which]--;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-next').onclick=()=>{pages[which]++;loadRoutes(which).catch(e=>message(e.message,true));};$('refresh-'+which).onclick=()=>loadRoutes(which).catch(e=>message(e.message,true));}
 function modal(title,summary,body,fn){$('modal-save').classList.remove('hidden');$('modal-save').textContent='Salvar';$('modal-save').disabled=false;$('modal-title').textContent=title;$('modal-summary').textContent=summary;$('modal-body').innerHTML=body;modalSave=fn;$('modalbg').classList.remove('hidden');}
