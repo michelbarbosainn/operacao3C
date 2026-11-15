@@ -16,6 +16,11 @@ $('logout').onclick=async()=>{await db.auth.signOut();location.reload();};
 async function refreshMetrics(){const a=await rpc('pcd_dashboard');$('metric-routes').textContent=a.total_routes;const day=$('availability-date').value||today();drivers=await rpc('pcd_v8_drivers',{p_date:day});$('metric-drivers').textContent=drivers.length;$('metric-available').textContent=drivers.filter(d=>d.day_status==='DISPONIVEL').length;$('metric-assigned').textContent=drivers.filter(d=>d.day_status==='PROGRAMADO').length;}
 async function showTab(t){if(t==='finance-params'&&$('finance-params-nav').classList.contains('hidden')){message('Acesso restrito ao administrador.',true);return;}tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','finance-params','availability','sac','occurrences','recipients','reasons'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='billing')await loadBilling();if(t==='finance-params')await loadFinanceParams();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+const sideToggle=$('sidebar-toggle'),cadToggle=$('cadastros-toggle'),cadMenu=$('cadastros-submenu');
+sideToggle.onclick=()=>{const collapsed=document.body.classList.toggle('sidebar-collapsed');sideToggle.title=collapsed?'Expandir menu':'Recolher menu';sideToggle.querySelector('span').textContent=collapsed?'Expandir menu':'Recolher menu';};
+$('tolls-nav').onclick=()=>message('Cadastro de pedágios: módulo ainda não disponível nesta versão.');
+cadToggle.onclick=()=>{if(document.body.classList.contains('sidebar-collapsed'))document.body.classList.remove('sidebar-collapsed');const isHidden=cadMenu.classList.toggle('hidden');cadToggle.setAttribute('aria-expanded',String(!isHidden));};
+
 document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>showTab(b.dataset.go));
 $('availability-date').value=today();
 async function loadAvailability(){
@@ -61,6 +66,17 @@ async function loadRoutes(which){
  target.querySelectorAll('tbody tr').forEach((tr,i)=>{
   const r=data[i];tr.children[11].textContent=r.merchandise_value==null?'—':Number(r.merchandise_value).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
   const count=Number(r.delivery_count)||0;tr.children[10].innerHTML='';const badge=document.createElement('span');badge.className='complexity '+(count===1?'low':count<=10?'mid':'high');badge.textContent=count+' '+(count===1?'●':count<=10?'◆':'▲');badge.title=count===1?'Entrega única':count<=10?'Complexidade intermediária':'Alta complexidade';tr.children[10].append(badge);
+  if(which==='routes'){
+   const cell=tr.children[0],wrap=document.createElement('div');wrap.className='plan-whatsapp-wrap';
+   const plan=document.createElement('span');plan.textContent=r.plan_number||'—';
+   const wa=document.createElement('button');wa.type='button';wa.className='whatsapp-copy';wa.textContent='◉';wa.title='Copiar confirmação de carga para WhatsApp';wa.setAttribute('aria-label','Copiar mensagem WhatsApp do plano '+r.plan_number);
+   wa.onclick=async()=>{
+     if(!r.driver_name||routeDisplayStatus(r)==='NÃO EMBARCOU'){message('Selecione um motorista programado antes de confirmar a carga.',true);return;}
+     const text=['CARGA CONFIRMADA ✅','',`Motorista: ${r.driver_name||'Não informado'}`,`Plano: ${r.plan_number||'—'}`,`Qt Entregas: ${r.delivery_count??'—'}`,`Peso: ${Number(r.gross_weight||0).toLocaleString('pt-BR',{maximumFractionDigits:2})} kg`,`Região: ${r.city||'—'}`,`Data Embarque: ${brDate(r.loading_on||r.route_date)}`,`Hora prevista: ${r.loading_time||'—'}`].join('\n');
+     try{await navigator.clipboard.writeText(text);message('Mensagem do plano '+r.plan_number+' copiada para WhatsApp.');}catch(e){const ta=document.createElement('textarea');ta.value=text;document.body.append(ta);ta.select();const ok=document.execCommand('copy');ta.remove();message(ok?'Mensagem copiada.':'Não foi possível copiar automaticamente.',!ok);}
+   };
+   wrap.append(plan,wa);cell.textContent='';cell.append(wrap);
+  }
   if(which==='sac'){const plan=document.createElement('button');plan.className='plan-link';plan.textContent=r.plan_number;plan.onclick=()=>openPlanInvoices(r);tr.children[0].textContent='';tr.children[0].append(plan);}
   const dateCell=tr.children[3],dateButton=document.createElement('button');dateButton.className='driver-inline';dateButton.textContent=brDate(r.route_date);dateButton.title='Reprogramar com justificativa';dateButton.disabled=!r.is_active;dateButton.onclick=()=>openReschedule(r);dateCell.textContent='';dateCell.append(dateButton);
   const statusCell=tr.children[14],pill=document.createElement('span'),status=routeDisplayStatus(r);pill.className='route-pill '+(status==='PROGRAMADO'?'programmed':status==='EMPLACAR'?'toassign':status==='NÃO EMBARCOU'?'notboarded':'other');pill.textContent=status;statusCell.textContent='';statusCell.append(pill);
@@ -920,15 +936,31 @@ $('finance-refresh').onclick=()=>loadFinanceParams().catch(e=>message(e.message,
 async function exportProgramPDF(){
  const btn=$('program-pdf');const old=btn.textContent;btn.disabled=true;btn.textContent='Gerando PDF...';
  try{
-  const items=window.innovaVisibleProgramRows||[];if(!items.length)throw Error('Nenhuma rota na página atual para exportar.');
+  const items=[...(window.innovaVisibleProgramRows||[])];if(!items.length)throw Error('Nenhuma rota na página atual para exportar.');
   if(!await paymentPdfReady())throw Error('Biblioteca PDF indisponível. Verifique sua conexão.');
+  const timeKey=r=>String(r.loading_time||'99:99:99').padStart(8,'0');
+  items.sort((a,b)=>String(a.loading_on||'9999-99-99').localeCompare(String(b.loading_on||'9999-99-99'))||timeKey(a).localeCompare(timeKey(b))||String(a.plan_number||'').localeCompare(String(b.plan_number||'')));
   const doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-  const dt=new Date().toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'});
-  doc.setFillColor(8,48,99);doc.rect(0,0,297,29,'F');doc.setTextColor(255,255,255);doc.setFontSize(17);doc.text('PLANO DE EMBARQUE | INNOVA',14,13);doc.setFontSize(9);doc.text('3 Corações · Sumaré/SP',14,20);doc.text('Emitido: '+dt,282,20,{align:'right'});
-  doc.setTextColor(35,52,73);doc.setFontSize(9);doc.text('Filtro data: '+($('route-date').value||'Todas')+'  |  Perfil: '+($('route-profile').value||'Todos')+'  |  Status: '+($('route-status').value||'Todos'),14,36);
+  const navy=[7,43,82],blue=[15,72,122],ink=[34,55,75],muted=[91,109,128],green=[27,112,72];
   const loaded=window.innovaVisibleLoadedIds||new Set();
-  const body=items.map((r,i)=>[String(i+1),String(r.plan_number||''),String(r.complement||''),String(r.city||''),String(r.vehicle_profile||''),Number(r.gross_weight||0).toLocaleString('pt-BR',{maximumFractionDigits:2}),String(r.delivery_count||0),String(r.driver_name||'—'),String(r.plate||'—'),brDate(r.loading_on),String(r.loading_time||'—'),routeDisplayStatus(r),loaded.has(Number(r.id))?'CARREGADO':'PENDENTE']);
-  doc.autoTable({startY:41,head:[['#','Plano','Complemento','Cidade','Perfil','Peso (kg)','Entregas','Motorista','Placa','Data car.','Hora car.','Status rota','Carregamento']],body,theme:'grid',styles:{fontSize:7,cellPadding:1.5,overflow:'linebreak',textColor:[35,52,73]},headStyles:{fillColor:[8,48,99],textColor:255,fontStyle:'bold'},alternateRowStyles:{fillColor:[246,249,252]},columnStyles:{0:{cellWidth:7},1:{cellWidth:23},2:{cellWidth:20},3:{cellWidth:29},4:{cellWidth:16},5:{cellWidth:18},6:{cellWidth:15},7:{cellWidth:37},8:{cellWidth:21},9:{cellWidth:20},10:{cellWidth:19},11:{cellWidth:23},12:{cellWidth:25}},margin:{left:8,right:8},didDrawPage:()=>{doc.setFontSize(7);doc.setTextColor(100);doc.text('INNOVA · Plano de embarque · Página '+doc.internal.getNumberOfPages(),285,203,{align:'right'});}});
+  const count=items.length,weight=items.reduce((n,r)=>n+(Number(r.gross_weight)||0),0),deliveries=items.reduce((n,r)=>n+(Number(r.delivery_count)||0),0);
+  const dt=new Date().toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'});
+  const head=()=>{
+   doc.setFillColor(...navy);doc.rect(0,0,297,27,'F');doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(15);doc.text('INNOVA  |  PLANO DE EMBARQUE',10,12);
+   doc.setFont('helvetica','normal');doc.setFontSize(8);doc.text('3 Corações  ·  Sumaré/SP',10,19);doc.text('Emitido: '+dt,286,19,{align:'right'});
+   doc.setTextColor(...ink);doc.setFont('helvetica','bold');doc.setFontSize(9);doc.text('VEÍCULOS  '+count,10,34);doc.text('PESO  '+weight.toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg',78,34);doc.text('ENTREGAS  '+deliveries,163,34);
+   doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(...muted);doc.text('Data: '+($('route-date').value||'Todas')+'   ·   Perfil: '+($('route-profile').value||'Todos')+'   ·   Status: '+($('route-status').value||'Todos')+'   ·   Ordem: carregamento crescente',10,40);
+  };
+  head();
+  const body=items.map((r,i)=>[String(i+1),brDate(r.loading_on),String(r.loading_time||'—'),String(r.plan_number||''),String(r.city||''),String(r.vehicle_profile||''),Number(r.gross_weight||0).toLocaleString('pt-BR',{maximumFractionDigits:2}),String(r.delivery_count||0),String(r.driver_name||'—'),String(r.plate||'—'),loaded.has(Number(r.id))?'CARREGADO':'PENDENTE']);
+  doc.autoTable({startY:44,head:[['#','DATA CAR.','HORA','PLANO','CIDADE / REGIÃO','PERFIL','PESO (kg)','ENTREGAS','MOTORISTA','PLACA','CARREGAMENTO']],body,theme:'grid',showHead:'everyPage',
+   styles:{font:'helvetica',fontSize:8,cellPadding:2.3,overflow:'linebreak',valign:'middle',textColor:ink,lineColor:[224,233,242],lineWidth:.15},
+   headStyles:{fillColor:blue,textColor:[255,255,255],fontStyle:'bold',fontSize:7.2},alternateRowStyles:{fillColor:[246,249,252]},
+   columnStyles:{0:{cellWidth:8},1:{cellWidth:24},2:{cellWidth:18},3:{cellWidth:25},4:{cellWidth:49},5:{cellWidth:20},6:{cellWidth:23},7:{cellWidth:18},8:{cellWidth:47},9:{cellWidth:24},10:{cellWidth:23}},
+   margin:{left:9,right:9,top:44,bottom:15},
+   didParseCell:data=>{if(data.section==='body'&&data.column.index===10&&data.cell.raw==='CARREGADO'){data.cell.styles.textColor=green;data.cell.styles.fontStyle='bold';data.cell.styles.fillColor=[229,246,235];}},
+   didDrawPage:()=>{const page=doc.internal.getCurrentPageInfo().pageNumber;if(page>1)head();doc.setFontSize(7);doc.setTextColor(...muted);doc.text('INNOVA  ·  Plano de embarque  ·  Página '+page,287,202,{align:'right'});}
+  });
   const name='INNOVA_PLANO_EMBARQUE_'+($('route-date').value||today()).replace(/\//g,'-')+'.pdf';doc.save(name);
  }catch(e){message(e.message,true);}finally{btn.disabled=false;btn.textContent=old;}
 }
