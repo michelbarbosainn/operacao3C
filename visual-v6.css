@@ -379,3 +379,6 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 #route-table .v1321-occ-chip .v1321-occ-count{font-size:10px;line-height:1;font-weight:650;}
 #route-table .v1321-occ-chip:hover{filter:brightness(.96)!important;}
 #route-table .v1321-occ-chip:focus-visible{outline:2px solid #2563eb!important;outline-offset:2px!important;}
+
+/* V13.22: justificativa da reprogramação por não embarque */
+#import-preview .v1322-reason{display:block;width:100%;min-width:210px;margin-top:6px;padding:7px 9px;border:1px solid #cbd9e8;border-radius:7px;font:inherit;font-size:11px;resize:vertical;background:#fff;color:#153655}
