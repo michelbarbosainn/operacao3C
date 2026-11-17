@@ -328,8 +328,13 @@ async function loadRoutes(which){
      const cell=tr.children[0],wrap=cell.querySelector('.plan-whatsapp-wrap')||cell;
      const indicator=document.createElement('button');indicator.type='button';
      const open=occurrences.filter(o=>o.status!=='ENCERRADA'&&o.status!=='CANCELADA').length;
-     indicator.className='v1320-occ-indicator'+(open?' v1320-occ-open':'');
-     indicator.textContent='⚑ '+occurrences.length;
+     indicator.className='v1321-occ-chip '+(open?'v1321-occ-pending':'v1321-occ-closed');
+     const icon=document.createElement('span');icon.className='v1321-occ-icon';icon.setAttribute('aria-hidden','true');
+     icon.innerHTML=open
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10.29 3.86-8.47 14.14A2 2 0 0 0 3.53 21h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 5-6"/></svg>';
+     const count=document.createElement('span');count.className='v1321-occ-count';count.textContent=String(occurrences.length);
+     indicator.append(icon,count);
      indicator.title=occurrences.length+' ocorrência(s) neste plano ('+open+' pendente(s)). Clique para consultar.';
      indicator.setAttribute('aria-label','Abrir '+occurrences.length+' ocorrências do plano '+r.plan_number);
      indicator.onclick=()=>openPlanInvoices(r);
