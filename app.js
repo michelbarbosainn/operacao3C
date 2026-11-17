@@ -631,9 +631,10 @@ async function manageOccurrence(occId,route){
   <h3>Envio de ocorrência</h3><label>Complemento (se houver)</label><textarea id="occ-complement" rows="2" placeholder="Informações adicionais para o e-mail complementar"></textarea>
   <button id="occ-send-v92" class="small">${hasInitial?'Enviar e-mail complementar':'Enviar ocorrência inicial de teste'}</button><p class="muted">Selecione os anexos que devem acompanhar este envio. Novos anexos podem ser incluídos posteriormente.</p>
   <h3>Histórico de envios</h3>${rows||'<p class="muted">Nenhum envio nesta versão.</p>'}
-  <h3>Encerramento</h3><label>Resultado final</label><select id="occ-close-result"><option value="">Selecione...</option><option>ENTREGUE</option><option>ENTREGUE PARCIAL</option><option>DEVOLUÇÃO TOTAL</option><option>REENTREGA</option><option>DEVOLUÇÃO PARCIAL</option></select><label>Senha de autorização 3 Corações</label><input id="occ-close-code" placeholder="Obrigatória para parcial ou devolução"><label>Observação de encerramento</label><textarea id="occ-close-note" rows="2"></textarea><button id="occ-close-btn" class="small" ${history.status==='ENCERRADA'?'disabled':''}>Encerrar ocorrência</button>${history.closing_result?`<p class="note">Encerrada: ${esc(history.closing_result)}</p>`:''}</div>`;
+  <h3>Encerramento</h3><label>Resultado final</label><select id="occ-close-result"><option value="">Selecione...</option><option>ENTREGUE</option><option>ENTREGUE PARCIAL</option><option>DEVOLUÇÃO TOTAL</option><option>REENTREGA</option><option>DEVOLUÇÃO PARCIAL</option></select><label>Senha de autorização 3 Corações</label><input id="occ-close-code" placeholder="Obrigatória para parcial ou devolução"><label>Observação de encerramento</label><textarea id="occ-close-note" rows="2"></textarea><button id="occ-close-btn" class="small" ${history.status==='ENCERRADA'?'disabled':''}>Encerrar ocorrência</button>${history.closing_result?`<p class="note">Encerrada: ${esc(history.closing_result)}</p>`:''}<div class="occ-modal-footer"><button type="button" class="secondary" id="occ-footer-close">Fechar</button></div></div>`;
   modal('Gestão da ocorrência',`OC-${String(occId).padStart(6,'0')} · Plano ${route.plan_number}`,html,async()=>{});
   $('modal-save').classList.add('hidden');
+  $('occ-footer-close').onclick=()=>{$('modalbg').classList.add('hidden');};
   const selected=()=>[...document.querySelectorAll('.occ-attach-select:checked')].map(e=>Number(e.value));
   $('occ-upload-btn').onclick=async()=>{
    try{const arr=[...$('occ-upload').files];if(!arr.length)throw Error('Selecione arquivos.');
@@ -785,7 +786,19 @@ async function loadRecipients(){
  $('recipient-bulk-counts').textContent=term?'Contagem dos resultados filtrados: '+items.filter(x=>x.active).length+' ativos / '+items.length+' exibidos':'Ativos: '+items.filter(x=>x.active).length+' · Inativos: '+items.filter(x=>!x.active).length;
  $('recipient-table').innerHTML=table(['Nome','E-mail','Status','Alterado em','Ação'],items.map(x=>[x.display_name,x.email,'',new Date(x.updated_at).toLocaleString('pt-BR'),'']));
  $('recipient-table').querySelectorAll('tbody tr').forEach((tr,i)=>{
-  const x=items[i];const cell=tr.children[2];const badge=document.createElement('span');badge.className='badge '+(x.active?'oc-open':'oc-cancelled');badge.textContent=x.active?'ATIVO':'INATIVO';cell.append(badge);
+  const x=items[i];const cell=tr.children[2];
+  const toggle=document.createElement('button');toggle.type='button';toggle.className='small recipient-inline-toggle '+(x.active?'is-active':'is-inactive');toggle.textContent=x.active?'ATIVO':'INATIVO';toggle.title=x.active?'Clique para inativar este destinatário':'Clique para ativar este destinatário';toggle.setAttribute('aria-label',(x.active?'Inativar ':'Ativar ')+x.email);cell.append(toggle);
+  toggle.onclick=async()=>{
+   const next=!x.active;
+   toggle.disabled=true;
+   try{
+    await rpc('pcd_oc_save_recipient',{p_email:x.email,p_name:x.display_name||'',p_active:next});
+    x.active=next;toggle.textContent=next?'ATIVO':'INATIVO';toggle.className='small recipient-inline-toggle '+(next?'is-active':'is-inactive');toggle.title=next?'Clique para inativar este destinatário':'Clique para ativar este destinatário';toggle.setAttribute('aria-label',(next?'Inativar ':'Ativar ')+x.email);
+    $('recipient-bulk-counts').textContent=term?'Contagem dos resultados filtrados: '+items.filter(y=>y.active).length+' ativos / '+items.length+' exibidos':'Ativos: '+items.filter(y=>y.active).length+' · Inativos: '+items.filter(y=>!y.active).length;
+    message('Destinatário '+(next?'ativado':'inativado')+': '+x.email+'.');
+   }catch(e){message('Não foi possível alterar '+x.email+': '+e.message,true);}
+   finally{toggle.disabled=false;}
+  };
   const b=document.createElement('button');b.className='small secondary';b.textContent='Editar';b.onclick=()=>editRecipient(x);tr.lastElementChild.append(b);
  });
 }

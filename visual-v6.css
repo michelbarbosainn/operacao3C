@@ -408,3 +408,11 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 #sac-table .sac-status-select[data-status="CONTINUAR ROTA"][data-continuity-responsibility="CLIENTE_AUTORIZADO"]{background:#dbeafe!important;color:#1d4ed8!important;border-color:#93c5fd!important;}
 #route-table .sac-status-select[data-status="CONTINUAR ROTA"][data-continuity-responsibility="NAO_CLASSIFICADA"],
 #sac-table .sac-status-select[data-status="CONTINUAR ROTA"][data-continuity-responsibility="NAO_CLASSIFICADA"]{background:#f3f4f6!important;color:#4b5563!important;border-color:#d1d5db!important;}
+
+/* V13.36 - Acesso rapido ao fechamento e alteracao inline de destinatarios */
+.occ-modal-footer{display:flex;justify-content:flex-end;align-items:center;margin-top:22px;padding-top:14px;border-top:1px solid #e1eaf4}
+.occ-modal-footer button{min-width:100px}
+.recipient-inline-toggle{min-width:78px;border:1px solid transparent!important;border-radius:7px!important;font-size:11px!important;font-weight:600!important;cursor:pointer}
+.recipient-inline-toggle.is-active{background:#dcfce7!important;color:#166534!important;border-color:#86efac!important}
+.recipient-inline-toggle.is-inactive{background:#fee2e2!important;color:#991b1b!important;border-color:#fecaca!important}
+.recipient-inline-toggle:disabled{opacity:.55;cursor:wait}
