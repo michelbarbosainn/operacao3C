@@ -330,3 +330,23 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 #panel-availability .av-sac-toassign {background:#fff2d8!important;color:#9b5b0b!important;border-color:#ffe3b0!important;}
 #panel-availability .av-sac-other {background:#edf1f5!important;color:#4c6175!important;border-color:#dce5ee!important;}
 #panel-availability .av-previous-status.av-sac-badge:hover {filter:brightness(.97)!important;text-decoration:none!important;}
+
+/* V13.15: edição direta e compacta do SAC */
+#sac-table .sac-inline-select{appearance:auto;display:inline-block;width:auto;min-width:105px;max-width:165px;padding:5px 8px;border-radius:12px;border:1px solid #d8e5ee;background:#f2f6fa;color:#234b67;font-size:11px;font-weight:600;line-height:1.4;cursor:pointer;box-shadow:none;height:auto;}
+#sac-table .sac-status-select[data-status="CONCLUÍDO"],#sac-table .sac-gm-select[data-status="GM OK"]{background:#dff6e9;color:#116e47;border-color:#c5ebd6;}
+#sac-table .sac-status-select[data-status="EM ROTA"],#sac-table .sac-gm-select[data-status="ENTREGANDO"]{background:#e2f0ff;color:#145d9b;border-color:#cfe4fc;}
+#sac-table .sac-status-select[data-status="NÃO EMBARCOU"],#sac-table .sac-gm-select[data-status="NÃO USOU GM"]{background:#ffe6e6;color:#a52d2d;border-color:#ffd0d0;}
+#sac-table .sac-gm-select[data-status="FINALIZAÇÃO"]{background:#eee5fb;color:#6a3f91;border-color:#e0d1f4;}
+#sac-table .sac-status-select[data-status="PROGRAMADO"]{background:#e9f3f0;color:#18735c;border-color:#d2e7df;}
+#sac-table .sac-inline-select:disabled{opacity:.65;cursor:not-allowed;}
+
+/* V13.16: etiquetas compactas e legíveis para edição direta no SAC. */
+#sac-table .sac-inline-select{appearance:auto!important;-webkit-appearance:auto!important;min-width:116px;max-width:166px;width:100%;padding:6px 8px!important;border-radius:7px!important;font-size:11px!important;font-weight:650!important;letter-spacing:.01em;line-height:1.35!important;cursor:pointer;outline-offset:2px;box-shadow:none!important;}
+#sac-table .sac-inline-select:focus-visible{outline:2px solid #407eb5;}
+#sac-table .sac-inline-select option{background:#fff;color:#183852;font-weight:500;}
+#sac-table .sac-status-select[data-status="CONCLUÍDO"],#sac-table .sac-gm-select[data-status="GM OK"],#sac-table .sac-gm-select[data-status="ENTREGANDO"]{background:#dcf7e9!important;color:#11643e!important;border-color:#b7e7cb!important;}
+#sac-table .sac-status-select[data-status="PROGRAMADO"]{background:#e1efff!important;color:#185a9d!important;border-color:#bad7f7!important;}
+#sac-table .sac-status-select[data-status="EMPLACAR"],#sac-table .sac-gm-select[data-status="FINALIZAÇÃO"]{background:#fff3ce!important;color:#805500!important;border-color:#f3d98c!important;}
+#sac-table .sac-status-select[data-status="EM ROTA"],#sac-table .sac-gm-select[data-status="ROTA ATRIBUIDA"],#sac-table .sac-gm-select[data-status="ROTA ATRIBUÍDA"]{background:#ffead8!important;color:#9a4c0c!important;border-color:#f4c79f!important;}
+#sac-table .sac-status-select[data-status="NÃO EMBARCOU"],#sac-table .sac-gm-select[data-status="NÃO USOU GM"]{background:#ffe4e4!important;color:#a72d35!important;border-color:#f4bdc1!important;}
+#sac-table .sac-inline-select:disabled{opacity:.6!important;}
