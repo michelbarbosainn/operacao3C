@@ -763,8 +763,26 @@ $('occ-next').onclick=()=>{pages.occurrences++;loadOccurrences().catch(e=>messag
 init().catch(e=>{console.error('Falha na inicialização do INNOVA PCD:',e);message('Falha na inicialização: '+(e?.message||String(e)),true);});
 
 // V9.7 - Cadastro de destinatários. A permissão efetiva é validada nas RPCs.
+// V13.34 - Alteração em lote exclusiva do administrador, validada também na RPC.
+async function bulkRecipients(active){
+ requireFinanceOwner();
+ const action=active?'ATIVAR':'INATIVAR';
+ if(!confirm(action+' TODOS os destinatários cadastrados? A alteração afetará os PRÓXIMOS envios, sem reenviar ocorrências antigas.'))return;
+ const buttons=[$('recipient-bulk-activate'),$('recipient-bulk-deactivate')];
+ buttons.forEach(b=>b.disabled=true);
+ try{
+  const result=await rpc('pcd_oc_set_all_recipients_active',{p_active:active});
+  await loadRecipients();
+  message((active?'Ativação':'Inativação')+' concluída: '+(result?.changed??0)+' destinatário(s) alterado(s).');
+ }catch(e){message('Não foi possível alterar destinatários: '+e.message,true);}
+ finally{buttons.forEach(b=>b.disabled=false);}
+}
+$('recipient-bulk-activate').onclick=()=>bulkRecipients(true);
+$('recipient-bulk-deactivate').onclick=()=>bulkRecipients(false);
 async function loadRecipients(){
  const term=$('recipient-search').value.trim();const items=await rpc('pcd_oc_list_recipients',{p_search:term});
+ $('recipient-bulk-controls').classList.toggle('hidden',!financeOwner);
+ $('recipient-bulk-counts').textContent=term?'Contagem dos resultados filtrados: '+items.filter(x=>x.active).length+' ativos / '+items.length+' exibidos':'Ativos: '+items.filter(x=>x.active).length+' · Inativos: '+items.filter(x=>!x.active).length;
  $('recipient-table').innerHTML=table(['Nome','E-mail','Status','Alterado em','Ação'],items.map(x=>[x.display_name,x.email,'',new Date(x.updated_at).toLocaleString('pt-BR'),'']));
  $('recipient-table').querySelectorAll('tbody tr').forEach((tr,i)=>{
   const x=items[i];const cell=tr.children[2];const badge=document.createElement('span');badge.className='badge '+(x.active?'oc-open':'oc-cancelled');badge.textContent=x.active?'ATIVO':'INATIVO';cell.append(badge);
