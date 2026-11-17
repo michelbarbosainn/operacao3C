@@ -150,6 +150,10 @@ function selectedRouteStatuses(){return [...document.querySelectorAll('#route-st
 function updateRouteStatusLabel(){const a=selectedRouteStatuses();$('route-status-label').textContent=a.length?a.join(', '):'Todos os status';}
 document.querySelectorAll('#route-status-menu input[type="checkbox"]').forEach(x=>x.addEventListener('change',()=>{updateRouteStatusLabel();pages.routes=0;loadRoutes('routes').catch(e=>message(e.message,true));}));
 $('route-status-clear').onclick=()=>{document.querySelectorAll('#route-status-menu input[type="checkbox"]').forEach(x=>x.checked=false);updateRouteStatusLabel();pages.routes=0;loadRoutes('routes').catch(e=>message(e.message,true));};
+function selectedSACStatuses(){return [...document.querySelectorAll('#sac-status-menu input[type="checkbox"]:checked')].map(x=>x.value);}
+function updateSACStatusLabel(){const a=selectedSACStatuses();$('sac-status-label').textContent=a.length?a.join(', '):'Todos os status';}
+document.querySelectorAll('#sac-status-menu input[type="checkbox"]').forEach(x=>x.addEventListener('change',()=>{updateSACStatusLabel();pages.sac=0;loadRoutes('sac').catch(e=>message(e.message,true));}));
+$('sac-status-clear').onclick=()=>{document.querySelectorAll('#sac-status-menu input[type="checkbox"]').forEach(x=>x.checked=false);updateSACStatusLabel();pages.sac=0;loadRoutes('sac').catch(e=>message(e.message,true));};
 // Remover apenas a data ISO indevidamente concatenada ao complemento pelo backend.
 // Não inferir complemento a partir da data da solicitação.
 function routeComplement(r){const raw=String(r.complement??'').trim();return raw.replace(/(?:\s*[·|;,]\s*|\s+)\d{4}-\d{2}-\d{2}\s*$/,'').replace(/^\d{4}-\d{2}-\d{2}$/,'').trim()||'—';}
@@ -206,7 +210,7 @@ $('ops-refresh').onclick=()=>loadOperationalSummary().catch(e=>message(e.message
 async function loadRoutes(which){
  const prefix=which==='sac'?'sac':'route';
  const search=$(prefix+'-search').value.trim();
- const profileFilter=$(prefix+'-profile')?.value||'',statusFilter=which==='routes'?'':($(prefix+'-status')?.value||'');
+ const profileFilter=$(prefix+'-profile')?.value||'';
  let a,data;
  if(which==='routes'){
   const routeDate=$('route-date').value,requestDate=$('route-request-date').value,driver=norm($('route-driver').value);
@@ -217,9 +221,13 @@ async function loadRoutes(which){
   a={total:filtered.length};data=v13Filtered.slice(pages.routes*50,(pages.routes+1)*50);
   $('route-filter-info').textContent=filtered.length.toLocaleString('pt-BR')+' rotas nos filtros';
  }else{
-  const date=$('sac-date').value.trim(),isoDate=date?isoDateBR(date):null;
-  a=await rpc('pcd_v8_routes',{p_search:search,p_date:isoDate,p_limit:50,p_offset:pages[which]*50});totals[which]=a.total;
-  data=(a.rows||[]).filter(r=>(!profileFilter||norm(r.vehicle_profile)===norm(profileFilter))&&(!statusFilter||routeDisplayStatus(r)===statusFilter));
+  // V13.25: filtrar o conjunto inteiro ANTES da paginação (evita páginas vazias e totais incorretos).
+  const routeDate=$('sac-date').value,requestDate=$('sac-request-date').value,driver=norm($('sac-driver').value);
+  const selectedStatuses=selectedSACStatuses();
+  const all=await v13FetchAll(search);
+  const filtered=all.filter(r=>(!routeDate||String(r.route_date||'').slice(0,10)===routeDate)&&(!requestDate||String(r.request_date||'').slice(0,10)===requestDate)&&(!profileFilter||norm(r.vehicle_profile)===norm(profileFilter))&&(!selectedStatuses.length||selectedStatuses.includes(routeDisplayStatus(r)))&&(!driver||norm(r.driver_name).includes(driver)));
+  totals.sac=filtered.length;
+  a={total:filtered.length};data=filtered.slice(pages.sac*50,(pages.sac+1)*50);
  }
  const headers=which==='routes'?['Plano','Complemento Solicitação','Data rota','Data car.','Hora car.','Cidade','Peso','Valor NF','Entregas','Perfil','Motorista','Placa','Status rota','Carregado','GreenMile']:['Plano','Complemento','Solicitação','Data rota','Data car.','Hora car.','Cidade','Perfil','Peso','Entregas','Valor NF','Motorista','Placa','Status rota','GreenMile'];
  const target=$(which==='sac'?'sac-table':'route-table');
