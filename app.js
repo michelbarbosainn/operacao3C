@@ -303,6 +303,14 @@ async function loadRoutes(which){
    statusCell.textContent='';statusCell.append(select);
   }
   if(which==='routes'){
+   const planCell=tr.children[0];
+   const continuityBtn=document.createElement('button');
+   continuityBtn.type='button';continuityBtn.className='continuity-trigger';
+   continuityBtn.textContent='↪ Continuidade';
+   continuityBtn.title='Criar segunda viagem vinculada, sem valores financeiros';
+   continuityBtn.disabled=!r.is_active||status==='NÃO EMBARCOU'||r.duplicate_kind==='CONTINUIDADE';
+   continuityBtn.onclick=()=>openContinuity(r);
+   planCell.append(continuityBtn);
    const cityCell=tr.children[5];
    const cityLink=document.createElement('button');
    cityLink.type='button';cityLink.className='billing-city-link route-city-link';
@@ -410,6 +418,33 @@ function isoDateBR(s){const m=String(s||'').trim().match(/^(\d{2})\/(\d{2})\/(\d
 function driverPriority(d,r){const want=PROFILE_ORDER.indexOf(norm(r.vehicle_profile)),got=PROFILE_ORDER.indexOf(norm(d.profile));const available=d.day_status==='DISPONIVEL';return (available?0:10)+(got===want?0:got>want?1:2);}
 async function assignDriver(r,id){const d=(await rpc('pcd_v8_drivers',{p_date:r.route_date||r.loading_on})).find(x=>Number(x.id)===Number(id));if(!d)throw Error('Motorista não encontrado');const desired=PROFILE_ORDER.indexOf(norm(r.vehicle_profile)),actual=PROFILE_ORDER.indexOf(norm(d.profile));if(actual<desired&&!confirm('O perfil do motorista é inferior ao solicitado. Confirmar negociação excepcional?'))return false;let result=await rpc('pcd_v8_assign',{p_route_id:r.id,p_driver_id:Number(id),p_confirm_second:false});if(result.requires_confirmation){if(!confirm(result.message||'Motorista indisponível ou com outra rota. Confirma a escala negociada?'))return false;result=await rpc('pcd_v8_assign',{p_route_id:r.id,p_driver_id:Number(id),p_confirm_second:true});}return true;}
 async function openAssign(r){const all=await rpc('pcd_v8_drivers',{p_date:r.route_date||r.loading_on});const eligible=all.filter(d=>d.base_status!=='INATIVO').sort((a,b)=>driverPriority(a,r)-driverPriority(b,r)||a.name.localeCompare(b.name,'pt-BR'));const options=eligible.map(d=>`<option value="${d.id}">${esc(d.name)} · ${esc(d.profile)} · ${esc(d.plate)} · ${esc(d.day_status)}${Number(d.routes_count)?' ('+d.routes_count+' rota(s))':''}</option>`).join('');modal('Escalar motorista',`Plano ${r.plan_number} · ${brDate(r.route_date||r.loading_on)} · ${r.city} · ${r.vehicle_profile}`,`<label>Motoristas (compatíveis disponíveis primeiro)</label><select id="pick-driver"><option value="">Selecione...</option>${options}</select><p class="muted" id="pick-plate">A placa será preenchida automaticamente.</p><p class="note">Motoristas de perfil inferior, já programados ou indisponíveis exigem confirmação. Hierarquia: FIORINO &lt; VAN &lt; VUC &lt; MEDIO.</p>`,async()=>{const id=Number($('pick-driver').value);if(!id)throw Error('Selecione o motorista');if(!await assignDriver(r,id))throw Error('Escala cancelada');});$('pick-driver').onchange=()=>{const d=eligible.find(x=>x.id===Number($('pick-driver').value));$('pick-plate').textContent=d?`Placa: ${d.plate} · ${d.profile}`:'Selecione um motorista';};}
+function openContinuity(r){
+ const d=r.route_date||r.loading_on||'';
+ modal('Criar continuidade de rota',`Plano ${r.plan_number} · ${brDate(d)} · ${r.city||''}`,
+ `<label>Data da segunda viagem</label><input type="date" id="continuity-date" value="${esc(d)}" required>
+ <label>Motorista responsável</label><select id="continuity-driver"><option value="">Selecione...</option></select>
+ <label>Quantidade de entregas pendentes</label><input type="number" id="continuity-deliveries" min="1" max="${Number(r.delivery_count)||9999}" step="1" placeholder="Entregas ainda pendentes">
+ <label>Responsabilidade financeira</label><select id="continuity-responsibility"><option value="TRANSPORTADORA">Continuidade por responsabilidade da transportadora</option><option value="CLIENTE_AUTORIZADO">Frete adicional autorizado pelo cliente</option></select>
+ <label>Justificativa</label><textarea id="continuity-reason" maxlength="2000" placeholder="Descreva o motivo da continuidade"></textarea>
+ <label>Referência da autorização do cliente (se aplicável)</label><input id="continuity-authorization" maxlength="250" placeholder="E-mail, chamado ou responsável">
+ <p class="note">Valores financeiros são calculados e consultados somente no Faturamento. Esta tela não apresenta tarifas ou custos.</p>`,
+ async()=>{
+  const date=$('continuity-date').value;
+  const driverId=Number($('continuity-driver').value);
+  const deliveries=Number($('continuity-deliveries').value);
+  const responsibility=$('continuity-responsibility').value;
+  const reason=$('continuity-reason').value.trim();
+  const authorization=$('continuity-authorization').value.trim();
+  if(!date||!driverId||!Number.isInteger(deliveries)||deliveries<1||deliveries>Number(r.delivery_count||9999))throw Error('Informe data, motorista e quantidade válida de entregas pendentes.');
+  if(reason.length<10)throw Error('Informe justificativa com pelo menos 10 caracteres.');
+  if(responsibility==='CLIENTE_AUTORIZADO'&&!authorization)throw Error('Informe a referência da autorização do cliente.');
+  await rpc('pcd_v1326_create_continuity',{p_parent_route_id:Number(r.id),p_route_date:date,p_driver_id:driverId,p_delivery_count:deliveries,p_responsibility:responsibility,p_reason:reason,p_authorization:authorization||null});
+ });
+ rpc('pcd_v8_drivers',{p_date:d}).then(drivers=>{
+  const sel=$('continuity-driver');if(!sel)return;
+  for(const x of drivers.filter(x=>x.base_status!=='INATIVO')){const opt=document.createElement('option');opt.value=x.id;opt.textContent=`${x.name} · ${x.profile} · ${x.plate}`;sel.append(opt);}
+ }).catch(e=>message(e.message,true));
+}
 function openReschedule(r){modal('Reprogramar data',`Plano ${r.plan_number} · data atual ${brDate(r.route_date||r.loading_on)}`,`<label>Nova data (DD/MM/AAAA)</label><input id="new-route-date" placeholder="17/11/2026" value="${brDate(r.route_date||r.loading_on)}"/><label>Justificativa obrigatória</label><textarea id="new-route-reason" maxlength="2000" placeholder="Ex.: atraso na separação da 3 Corações; carregamento concluído às 09:00."></textarea><p class="note">Mesma rota e mesmo frete: nenhuma nova receita ou despesa será criada.</p>`,async()=>{await rpc('pcd_v9_reschedule',{p_route_id:r.id,p_new_date:isoDateBR($('new-route-date').value),p_reason:$('new-route-reason').value});});}
 function openNoBoard(r){modal('Registrar NÃO EMBARCOU',`Plano ${r.plan_number} · ${brDate(r.route_date||r.loading_on)}`,`<label>Justificativa obrigatória</label><textarea id="no-board-reason" maxlength="2000" placeholder="Explique por que a rota ofertada não foi atendida."></textarea><p class="note">A rota ficará no relatório, sem gerar novo frete.</p>`,async()=>{if(!confirm('Confirmar NÃO EMBARCOU para esta rota?'))throw Error('Cancelado');await rpc('pcd_v9_no_board',{p_route_id:r.id,p_reason:$('no-board-reason').value});});}
 function openSAC(r){modal('Acompanhamento SAC',`Plano ${r.plan_number} · ${brDate(r.route_date||r.loading_on)} · Motorista: ${r.driver_name||'Não escalado'}`,`<div class="two"><div><label>Status da rota</label><select id="sac-route-status"><option>EMPLACAR</option><option>PROGRAMADO</option><option>EM ROTA</option><option>CONCLUÍDO</option></select></div><div><label>Status GreenMile</label><select id="sac-gm-status"><option value="">Não informado</option><option>ROTA ATRIBUIDA</option><option>ENTREGANDO</option><option>FINALIZAÇÃO</option><option>GM OK</option><option>NÃO USOU GM</option></select></div></div><label style="margin-top:14px">Observações</label><textarea id="sac-notes" maxlength="4000"></textarea><p class="muted">Para alterar a data, clique na data da rota. Para NÃO EMBARCOU, utilize a ação específica.</p>`,async()=>{await rpc('pcd_v8_sac',{p_route_id:r.id,p_status:$('sac-route-status').value,p_gm:$('sac-gm-status').value||null,p_notes:$('sac-notes').value,p_route_date:r.route_date||r.loading_on});});$('sac-route-status').value=r.route_status==='PROGRAMAR'?'EMPLACAR':r.route_status||'EMPLACAR';$('sac-gm-status').value=r.gm_status||'';$('sac-notes').value=r.sac_notes||'';}

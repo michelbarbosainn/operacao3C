@@ -399,3 +399,8 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 #panel-sac .route-compact-filters .route-status-filter{position:relative;z-index:6}
 @media(max-width:1260px){#panel-sac .route-compact-filters{grid-template-columns:repeat(4,minmax(0,1fr))!important}}
 @media(max-width:690px){#panel-sac .route-compact-filters{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+
+/* V13.26: acao operacional de continuidade */
+.continuity-trigger{display:inline-flex;align-items:center;white-space:nowrap;margin:4px 0 0 5px;padding:3px 7px;border:1px solid #bfd5e6;border-radius:6px;background:#f3f8fc;color:#225472;font-size:10px;font-weight:500;cursor:pointer}
+.continuity-trigger:hover{background:#e6f2fa}
+.continuity-trigger:disabled{opacity:.45;cursor:not-allowed}
