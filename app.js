@@ -266,6 +266,35 @@ async function loadRoutes(which){
   const dateCell=tr.children[which==='routes'?2:3],dateButton=document.createElement('button');dateButton.className='driver-inline';dateButton.textContent=brDate(r.route_date);dateButton.title='Reprogramar com justificativa';dateButton.disabled=!r.is_active;dateButton.onclick=()=>openReschedule(r);dateCell.textContent='';dateCell.append(dateButton);
   const statusCell=tr.children[which==='routes'?12:13],pill=document.createElement('span'),status=routeDisplayStatus(r);pill.className='route-pill '+(status==='PROGRAMADO'?'programmed':status==='EMPLACAR'?'toassign':status==='NÃO EMBARCOU'?'notboarded':'other');pill.textContent=status;statusCell.textContent='';statusCell.append(pill);
   if(which==='routes'){
+   // V13.24: a Programação utiliza o mesmo seletor, cores e validações do SAC.
+   const statuses=['EMPLACAR','PROGRAMADO','EM ROTA','CONCLUÍDO','NÃO EMBARCOU'];
+   const select=document.createElement('select');
+   select.className='sac-inline-select sac-status-select';
+   for(const st of statuses){const o=document.createElement('option');o.value=st;o.textContent=st;select.append(o);}
+   select.value=statuses.includes(status)?status:'EMPLACAR';
+   select.disabled=!r.is_active;
+   const styleStatus=()=>{select.dataset.status=select.value;};
+   styleStatus();select.addEventListener('input',styleStatus);
+   select.onchange=async()=>{
+    const next=select.value,previous=status;
+    select.disabled=true;
+    try{
+     if(next==='NÃO EMBARCOU'){
+      const reason=prompt('Justificativa obrigatória para NÃO EMBARCOU (ex.: motorista não compareceu):');
+      if(reason===null){select.value=previous;styleStatus();return;}
+      if(!reason.trim())throw Error('Informe uma justificativa para NÃO EMBARCOU.');
+      if(!confirm('Confirmar NÃO EMBARCOU? A rota será preservada no histórico, sem contabilizar frete.')){select.value=previous;styleStatus();return;}
+      await rpc('pcd_v9_no_board',{p_route_id:r.id,p_reason:reason.trim()});
+     }else{
+      await rpc('pcd_v8_sac',{p_route_id:r.id,p_status:next,p_gm:r.gm_status||null,p_notes:r.sac_notes||'',p_route_date:r.route_date||r.loading_on});
+     }
+     await loadRoutes('routes');message('Status da rota atualizado.');
+    }catch(e){select.value=previous;styleStatus();message(e.message,true);}
+    finally{select.disabled=!r.is_active;}
+   };
+   statusCell.textContent='';statusCell.append(select);
+  }
+  if(which==='routes'){
    const cityCell=tr.children[5];
    const cityLink=document.createElement('button');
    cityLink.type='button';cityLink.className='billing-city-link route-city-link';

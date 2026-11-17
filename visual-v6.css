@@ -382,3 +382,14 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 
 /* V13.22: justificativa da reprogramação por não embarque */
 #import-preview .v1322-reason{display:block;width:100%;min-width:210px;margin-top:6px;padding:7px 9px;border:1px solid #cbd9e8;border-radius:7px;font:inherit;font-size:11px;resize:vertical;background:#fff;color:#153655}
+
+/* V13.24 — Programação: seletor de status idêntico ao SAC. */
+#route-table .sac-inline-select{appearance:auto!important;-webkit-appearance:auto!important;display:inline-block;min-width:116px;max-width:166px;width:100%;padding:6px 8px!important;border-radius:7px!important;border:1px solid #d8e5ee;font-size:11px!important;font-weight:650!important;letter-spacing:.01em;line-height:1.35!important;cursor:pointer;outline-offset:2px;box-shadow:none!important;background:#f2f6fa;color:#234b67;}
+#route-table .sac-inline-select:focus-visible{outline:2px solid #407eb5;}
+#route-table .sac-inline-select option{background:#fff;color:#183852;font-weight:500;}
+#route-table .sac-status-select[data-status="CONCLUÍDO"]{background:#dcf7e9!important;color:#11643e!important;border-color:#b7e7cb!important;}
+#route-table .sac-status-select[data-status="PROGRAMADO"]{background:#e1efff!important;color:#185a9d!important;border-color:#bad7f7!important;}
+#route-table .sac-status-select[data-status="EMPLACAR"]{background:#fff3ce!important;color:#805500!important;border-color:#f3d98c!important;}
+#route-table .sac-status-select[data-status="EM ROTA"]{background:#ffead8!important;color:#9a4c0c!important;border-color:#f4c79f!important;}
+#route-table .sac-status-select[data-status="NÃO EMBARCOU"]{background:#ffe4e4!important;color:#a72d35!important;border-color:#f4bdc1!important;}
+#route-table .sac-inline-select:disabled{opacity:.6!important;cursor:not-allowed;}
