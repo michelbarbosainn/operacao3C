@@ -442,6 +442,7 @@ function openContinuity(r,action="CONTINUAR"){
   throw Error('A gravação de continuidade/transferência depende da função segura do Supabase, ainda não instalada. Nenhuma alteração foi feita.');
   await rpc('pcd_v1326_create_continuity',{p_parent_route_id:Number(r.id),p_route_date:date,p_driver_id:driverId,p_delivery_count:deliveries,p_responsibility:responsibility,p_reason:reason,p_authorization:authorization||null});
  });
+ $('modal-save').disabled=true;$('modal-save').textContent='Aguardando integração';
  rpc('pcd_v8_drivers',{p_date:d}).then(drivers=>{
   const sel=$('continuity-driver');if(!sel)return;
   for(const x of drivers.filter(x=>x.base_status!=='INATIVO')){const opt=document.createElement('option');opt.value=x.id;opt.textContent=`${x.name} · ${x.profile} · ${x.plate}`;sel.append(opt);}
