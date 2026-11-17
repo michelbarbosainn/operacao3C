@@ -61,11 +61,26 @@ async function loadAvailability(){
  const previous=await loadPreviousRoutes($('availability-date').value);
  const key=availabilitySort.key,dir=availabilitySort.dir;
  shown.sort((a,b)=>{const av=key==='routes_count'?Number(a.routes_count):String(a[key]??'').toLocaleUpperCase('pt-BR');const bv=key==='routes_count'?Number(b.routes_count):String(b[key]??'').toLocaleUpperCase('pt-BR');const v=typeof av==='number'?av-bv:String(av).localeCompare(String(bv),'pt-BR',{numeric:true});return (v||a.name.localeCompare(b.name,'pt-BR'))*dir;});
- $('availability-table').innerHTML=table(['Motorista','Placa','Perfil','Categoria','Status','Status rota anterior','Disponibilidade'],shown.map(d=>[d.name,d.plate,d.profile,d.category,'','','']));
+ $('availability-table').innerHTML=table(['Motorista','Placa','Perfil','Categoria','Status','Status rota anterior','Disponibilidade'],shown.map(d=>[d.registration_pending?d.name+' · PENDENTE':d.name,d.plate,d.profile,d.category,'','','']));
  const columns=['name','plate','profile','category','day_status',null];
  $('availability-table').querySelectorAll('thead th').forEach((th,i)=>{if(i>=columns.length||!columns[i])return;th.style.cursor='pointer';th.title='Clique para ordenar';th.textContent+=(availabilitySort.key===columns[i]?(availabilitySort.dir===1?' ▲':' ▼'):' ↕');th.onclick=()=>{availabilitySort.dir=availabilitySort.key===columns[i]?-availabilitySort.dir:(columns[i]==='routes_count'?-1:1);availabilitySort.key=columns[i];loadAvailability().catch(e=>message(e.message,true));};});
  $('availability-table').querySelectorAll('tbody tr').forEach((tr,i)=>{
   const d=shown[i],statusCell=tr.children[4],cell=tr.lastElementChild;
+  if(d.registration_pending){
+   const edit=document.createElement('button');edit.type='button';edit.className='av-action';edit.textContent='Completar cadastro';
+   edit.style.marginLeft='6px';
+   edit.onclick=()=>{
+     modal('Completar cadastro do motorista',esc(d.name)+' · cadastro provisório',
+       '<label>Nome</label><input id="v1323-name" value="'+esc(d.name)+'">'+
+       '<label>Placa</label><input id="v1323-plate" value="'+esc(d.plate)+'">'+
+       '<label>Perfil</label><input id="v1323-profile" value="'+esc(d.profile)+'">'+
+       '<label>Categoria</label><select id="v1323-category"><option value="SPOT">SPOT</option><option value="AGREGADO">AGREGADO</option></select>',
+       async()=>{await rpc('pcd_v1323_complete_driver',{p_driver_id:d.id,p_name:$('v1323-name').value,p_plate:$('v1323-plate').value,p_profile:$('v1323-profile').value,p_category:$('v1323-category').value});await loadAvailability();message('Cadastro complementado.');});
+     $('v1323-category').value=d.category;
+   };
+   tr.children[0].append(edit);
+  }
+
   const old=previous.get(String(d.id))||[];const prevCell=tr.children[5];
   if(old.length){
    const statuses=[...new Set(old.map(r=>routeDisplayStatus(r)))];
