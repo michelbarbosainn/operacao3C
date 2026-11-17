@@ -275,20 +275,22 @@ async function loadRoutes(which){
   const statusCell=tr.children[which==='routes'?12:13],pill=document.createElement('span'),status=routeDisplayStatus(r);pill.className='route-pill '+(status==='PROGRAMADO'?'programmed':status==='EMPLACAR'?'toassign':status==='NÃO EMBARCOU'?'notboarded':'other');pill.textContent=status;statusCell.textContent='';statusCell.append(pill);
   if(which==='routes'){
    // V13.24: a Programação utiliza o mesmo seletor, cores e validações do SAC.
-   const statuses=['EMPLACAR','PROGRAMADO','EM ROTA','CONCLUÍDO','NÃO EMBARCOU'];
+   const statuses=['EMPLACAR','PROGRAMADO','EM ROTA','CONCLUÍDO','NÃO EMBARCOU','CONTINUAR ROTA','TRANSFERIR CARRO'];
    const select=document.createElement('select');
    select.className='sac-inline-select sac-status-select';
    for(const st of statuses){const o=document.createElement('option');o.value=st;o.textContent=st;select.append(o);}
    for(const [value,label] of [['ACTION_CONTINUAR','CONTINUAR ROTA'],['ACTION_TRANSFERIR','TRANSFERIR CARRO']]){const o=document.createElement('option');o.value=value;o.textContent=label;select.append(o);}
    select.value=statuses.includes(status)?status:'EMPLACAR';
+   if(status==='CONTINUAR ROTA'||status==='TRANSFERIR CARRO'){select.disabled=true;select.title='Viagem original encerrada por continuidade/transferência';}
    select.disabled=!r.is_active;
    const styleStatus=()=>{select.dataset.status=select.value;};
    styleStatus();select.addEventListener('input',styleStatus);
    select.onchange=async()=>{
     const next=select.value,previous=status;
+    if(next==='CONTINUAR ROTA'||next==='TRANSFERIR CARRO'){select.value=previous;styleStatus();return;}
     if(next==='ACTION_CONTINUAR'||next==='ACTION_TRANSFERIR'){
      select.value=previous;styleStatus();
-     if(!r.is_active||status==='NÃO EMBARCOU'||r.duplicate_kind==='CONTINUIDADE'){
+     if(!r.is_active||status==='NÃO EMBARCOU'||status==='CONTINUAR ROTA'||status==='TRANSFERIR CARRO'||r.parent_route_id!=null){
       message('Esta rota não permite criar uma nova viagem.',true);return;
      }
      openContinuity(r,next==='ACTION_TRANSFERIR'?'TRANSFERIR':'CONTINUAR');
@@ -332,12 +334,14 @@ async function loadRoutes(which){
   }else{
    const sacStatusCell=tr.children[13],gmCell=tr.children[14];
    const select=document.createElement('select');select.className='sac-inline-select sac-status-select';
-   const statuses=['EMPLACAR','PROGRAMADO','EM ROTA','CONCLUÍDO','NÃO EMBARCOU'];
+   const statuses=['EMPLACAR','PROGRAMADO','EM ROTA','CONCLUÍDO','NÃO EMBARCOU','CONTINUAR ROTA','TRANSFERIR CARRO'];
    for(const st of statuses){const o=document.createElement('option');o.value=st;o.textContent=st;select.append(o);}
-   select.value=statuses.includes(status)?status:'EMPLACAR';select.disabled=!r.is_active;
+   select.value=statuses.includes(status)?status:'EMPLACAR';
+   if(status==='CONTINUAR ROTA'||status==='TRANSFERIR CARRO'){select.disabled=true;select.title='Viagem original encerrada por continuidade/transferência';}select.disabled=!r.is_active;
    const styleStatus=()=>{select.dataset.status=select.value;};styleStatus();select.addEventListener('input',styleStatus);
    select.onchange=async()=>{
     const next=select.value,previous=status;
+    if(next==='CONTINUAR ROTA'||next==='TRANSFERIR CARRO'){select.value=previous;styleStatus();return;}
     select.disabled=true;
     try{
      if(next==='NÃO EMBARCOU'){
@@ -408,7 +412,7 @@ async function loadRoutes(which){
  $(prefix+'-page').textContent=`${a.total} rotas · página ${pages[which]+1}`;
  $(prefix+'-prev').disabled=pages[which]===0;$(prefix+'-next').disabled=(pages[which]+1)*50>=a.total;
 }
-function routeDisplayStatus(r){const st=norm(r.route_status);if(st==='NAOEMBARCOU')return 'NÃO EMBARCOU';if(st==='PROGRAMAR'||st==='EMPLACAR')return (r.driver_name||r.driver_id)?'PROGRAMADO':'EMPLACAR';if(st==='PROGRAMADO')return (r.driver_name||r.driver_id)?'PROGRAMADO':'EMPLACAR';return r.route_status||((r.driver_name||r.driver_id)?'PROGRAMADO':'EMPLACAR');}
+function routeDisplayStatus(r){const st=norm(r.route_status);if(st==='NAOEMBARCOU')return 'NÃO EMBARCOU';if(st==='CONTINUARROTA')return 'CONTINUAR ROTA';if(st==='TRANSFERIRCARRO')return 'TRANSFERIR CARRO';if(st==='PROGRAMAR'||st==='EMPLACAR')return (r.driver_name||r.driver_id)?'PROGRAMADO':'EMPLACAR';if(st==='PROGRAMADO')return (r.driver_name||r.driver_id)?'PROGRAMADO':'EMPLACAR';return r.route_status||((r.driver_name||r.driver_id)?'PROGRAMADO':'EMPLACAR');}
 
 for(const which of ['routes','sac']){const prefix=which==='sac'?'sac':'route';$(prefix+'-filter').onclick=()=>{pages[which]=0;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-prev').onclick=()=>{pages[which]--;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-next').onclick=()=>{pages[which]++;loadRoutes(which).catch(e=>message(e.message,true));};$('refresh-'+which).onclick=()=>loadRoutes(which).catch(e=>message(e.message,true));}
 function modal(title,summary,body,fn){$('modal-save').classList.remove('hidden');$('modal-save').textContent='Salvar';$('modal-save').disabled=false;$('modal-title').textContent=title;$('modal-summary').textContent=summary;$('modal-body').innerHTML=body;modalSave=fn;$('modalbg').classList.remove('hidden');}
