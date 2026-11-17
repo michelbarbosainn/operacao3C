@@ -400,3 +400,11 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 @media(max-width:1260px){#panel-sac .route-compact-filters{grid-template-columns:repeat(4,minmax(0,1fr))!important}}
 @media(max-width:690px){#panel-sac .route-compact-filters{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 
+
+/* V13.28: identificação visual da responsabilidade da continuidade, sem expor valores */
+#route-table .sac-status-select[data-status="CONTINUAR ROTA"][data-continuity-responsibility="TRANSPORTADORA"],
+#sac-table .sac-status-select[data-status="CONTINUAR ROTA"][data-continuity-responsibility="TRANSPORTADORA"]{background:#ffe4e6!important;color:#9f1239!important;border-color:#fda4af!important;}
+#route-table .sac-status-select[data-status="CONTINUAR ROTA"][data-continuity-responsibility="CLIENTE_AUTORIZADO"],
+#sac-table .sac-status-select[data-status="CONTINUAR ROTA"][data-continuity-responsibility="CLIENTE_AUTORIZADO"]{background:#dbeafe!important;color:#1d4ed8!important;border-color:#93c5fd!important;}
+#route-table .sac-status-select[data-status="CONTINUAR ROTA"][data-continuity-responsibility="NAO_CLASSIFICADA"],
+#sac-table .sac-status-select[data-status="CONTINUAR ROTA"][data-continuity-responsibility="NAO_CLASSIFICADA"]{background:#f3f4f6!important;color:#4b5563!important;border-color:#d1d5db!important;}

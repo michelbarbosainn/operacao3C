@@ -232,6 +232,14 @@ async function loadRoutes(which){
  const headers=which==='routes'?['Plano','Complemento Solicitação','Data rota','Data car.','Hora car.','Cidade','Peso','Valor NF','Entregas','Perfil','Motorista','Placa','Status rota','Carregado','GreenMile']:['Plano','Complemento','Solicitação','Data rota','Data car.','Hora car.','Cidade','Perfil','Peso','Entregas','Valor NF','Motorista','Placa','Status rota','GreenMile'];
  const target=$(which==='sac'?'sac-table':'route-table');
  const loadingStates=which==='routes'&&data.length?await rpc('pcd_v10_loading_states',{p_route_ids:data.map(r=>Number(r.id))}):[];
+ // V13.28: consulta apenas a classificação operacional, sem valores ou autorização do cliente.
+ let continuityColors=new Map();
+ if(data.some(r=>routeDisplayStatus(r)==='CONTINUAR ROTA')){
+  try{
+   const flags=await rpc('pcd_v1328_continuity_colors',{p_route_ids:data.filter(r=>routeDisplayStatus(r)==='CONTINUAR ROTA').map(r=>Number(r.id))});
+   continuityColors=new Map((flags||[]).map(x=>[Number(x.route_id),x.responsibility]));
+  }catch(e){console.warn('Cores de continuidade indisponíveis:',e.message);}
+ }
  const loadedIds=new Set((loadingStates||[]).filter(x=>x.is_loaded).map(x=>Number(x.route_id)));
  if(which==='routes')for(const id of loadedIds)v13Loaded.add(id);
  if(which==='routes')window.innovaVisibleLoadedIds=loadedIds;
@@ -283,7 +291,12 @@ async function loadRoutes(which){
    select.value=statuses.includes(status)?status:'EMPLACAR';
    if(status==='CONTINUAR ROTA'||status==='TRANSFERIR CARRO'){select.disabled=true;select.title='Viagem original encerrada por continuidade/transferência';}
    select.disabled=!r.is_active;
-   const styleStatus=()=>{select.dataset.status=select.value;};
+   const styleStatus=()=>{
+    select.dataset.status=select.value;
+    const responsibility=continuityColors.get(Number(r.id));
+    select.dataset.continuityResponsibility=select.value==='CONTINUAR ROTA'?(responsibility||'NAO_CLASSIFICADA'):'';
+    if(select.value==='CONTINUAR ROTA')select.title=responsibility==='TRANSPORTADORA'?'Continuidade por custo INNOVA (sem receita adicional)':responsibility==='CLIENTE_AUTORIZADO'?'Continuidade autorizada pelo cliente (com receita adicional)':'Responsabilidade financeira não identificada';
+   };
    styleStatus();select.addEventListener('input',styleStatus);
    select.onchange=async()=>{
     const next=select.value,previous=status;
@@ -338,7 +351,12 @@ async function loadRoutes(which){
    for(const st of statuses){const o=document.createElement('option');o.value=st;o.textContent=st;select.append(o);}
    select.value=statuses.includes(status)?status:'EMPLACAR';
    if(status==='CONTINUAR ROTA'||status==='TRANSFERIR CARRO'){select.disabled=true;select.title='Viagem original encerrada por continuidade/transferência';}select.disabled=!r.is_active;
-   const styleStatus=()=>{select.dataset.status=select.value;};styleStatus();select.addEventListener('input',styleStatus);
+   const styleStatus=()=>{
+    select.dataset.status=select.value;
+    const responsibility=continuityColors.get(Number(r.id));
+    select.dataset.continuityResponsibility=select.value==='CONTINUAR ROTA'?(responsibility||'NAO_CLASSIFICADA'):'';
+    if(select.value==='CONTINUAR ROTA')select.title=responsibility==='TRANSPORTADORA'?'Continuidade por custo INNOVA (sem receita adicional)':responsibility==='CLIENTE_AUTORIZADO'?'Continuidade autorizada pelo cliente (com receita adicional)':'Responsabilidade financeira não identificada';
+   };styleStatus();select.addEventListener('input',styleStatus);
    select.onchange=async()=>{
     const next=select.value,previous=status;
     if(next==='CONTINUAR ROTA'||next==='TRANSFERIR CARRO'){select.value=previous;styleStatus();return;}
