@@ -314,6 +314,31 @@ async function loadRoutes(which){
    gmCell.textContent='';gmCell.append(gm);
   }
  });
+ if(which==='routes'){
+  // Indicadores carregados somente para os planos da pagina visivel; limite de concorrencia.
+  const jobs=data.map((r,i)=>({r,tr:target.querySelectorAll('tbody tr')[i]}));
+  let cursor=0;
+  const worker=async()=>{
+   while(cursor<jobs.length){
+    const {r,tr}=jobs[cursor++];
+    if(!tr||!r.plan_number)continue;
+    try{
+     const occurrences=await rpc('pcd_v9_list_occurrences',{p_plan:r.plan_number});
+     if(!tr.isConnected||!Array.isArray(occurrences)||!occurrences.length)continue;
+     const cell=tr.children[0],wrap=cell.querySelector('.plan-whatsapp-wrap')||cell;
+     const indicator=document.createElement('button');indicator.type='button';
+     const open=occurrences.filter(o=>o.status!=='ENCERRADA'&&o.status!=='CANCELADA').length;
+     indicator.className='v1320-occ-indicator'+(open?' v1320-occ-open':'');
+     indicator.textContent='⚑ '+occurrences.length;
+     indicator.title=occurrences.length+' ocorrência(s) neste plano ('+open+' pendente(s)). Clique para consultar.';
+     indicator.setAttribute('aria-label','Abrir '+occurrences.length+' ocorrências do plano '+r.plan_number);
+     indicator.onclick=()=>openPlanInvoices(r);
+     wrap.append(indicator);
+    }catch(e){/* Nao bloquear a Programacao se a consulta de ocorrencias falhar. */}
+   }
+  };
+  void Promise.all(Array.from({length:Math.min(4,jobs.length)},()=>worker()));
+ }
  $(prefix+'-page').textContent=`${a.total} rotas · página ${pages[which]+1}`;
  $(prefix+'-prev').disabled=pages[which]===0;$(prefix+'-next').disabled=(pages[which]+1)*50>=a.total;
 }

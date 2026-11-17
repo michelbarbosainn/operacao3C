@@ -350,3 +350,9 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 #sac-table .sac-status-select[data-status="EM ROTA"],#sac-table .sac-gm-select[data-status="ROTA ATRIBUIDA"],#sac-table .sac-gm-select[data-status="ROTA ATRIBUÍDA"]{background:#ffead8!important;color:#9a4c0c!important;border-color:#f4c79f!important;}
 #sac-table .sac-status-select[data-status="NÃO EMBARCOU"],#sac-table .sac-gm-select[data-status="NÃO USOU GM"]{background:#ffe4e4!important;color:#a72d35!important;border-color:#f4bdc1!important;}
 #sac-table .sac-inline-select:disabled{opacity:.6!important;}
+
+/* V13.20 — indicador discreto de ocorrencias na Programacao */
+.v1320-occ-indicator{display:inline-flex;align-items:center;gap:3px;flex-shrink:0;margin-left:4px;padding:2px 5px;border:1px solid #cbd5e1;border-radius:6px;background:#f1f5f9;color:#475569;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap}
+.v1320-occ-indicator.v1320-occ-open{background:#fff3df;border-color:#f4c985;color:#995400}
+.v1320-occ-indicator:hover{filter:brightness(.96);text-decoration:underline}
+.v1320-occ-indicator:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
