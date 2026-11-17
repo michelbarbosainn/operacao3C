@@ -10,6 +10,10 @@ async function rpc(fn,args={}){const {data,error}=await db.rpc(fn,args);if(error
 // V13.18: restaura a sessão antes de carregar dados operacionais.
 // Uma falha temporária de RPC não deve devolver o usuário autenticado à tela de login.
 let loginTransition=false;
+const FINANCE_OWNER_EMAIL='michelbarbosa@innovasl.com.br';
+let financeOwner=false;
+function requireFinanceOwner(){if(!financeOwner)throw Error('Faturamento restrito ao usuário autorizado.');}
+
 async function init(){
  try{
   if(!cfg.supabaseUrl?.startsWith('https://')||!cfg.supabasePublishableKey||cfg.supabasePublishableKey.includes('SUBSTITUIR'))throw Error('Mantenha o config.js já configurado na V4. A chave pública não está preenchida.');
@@ -28,7 +32,9 @@ async function enter(user){
    await db.auth.signOut();throw Error('Acesso restrito a contas corporativas @innovasl.com.br.');
   }
   $('who').textContent=user.email;
-  const financeAdmin=String(user.email||'').toLowerCase()==='michelbarbosa@innovasl.com.br';
+  const financeAdmin=String(user.email||'').toLowerCase()===FINANCE_OWNER_EMAIL;
+  financeOwner=financeAdmin;
+  document.querySelectorAll('[data-tab="billing"]').forEach(el=>{el.classList.toggle('hidden',!financeOwner);el.disabled=!financeOwner;});
   $('finance-params-nav').classList.toggle('hidden',!financeAdmin);
   $('login-panel').classList.add('hidden');
   $('main').classList.remove('hidden');
@@ -45,7 +51,7 @@ $('google-login').onclick=async()=>{try{if(!db)throw Error('Supabase não config
 $('logout').onclick=async()=>{await db.auth.signOut();location.reload();};
 
 async function refreshMetrics(){const a=await rpc('pcd_dashboard');$('metric-routes').textContent=a.total_routes;const day=$('availability-date').value||today();drivers=await rpc('pcd_v8_drivers',{p_date:day});$('metric-drivers').textContent=drivers.length;$('metric-available').textContent=drivers.filter(d=>d.day_status==='DISPONIVEL').length;$('metric-assigned').textContent=drivers.filter(d=>d.day_status==='PROGRAMADO').length;}
-async function showTab(t){if(t==='finance-params'&&$('finance-params-nav').classList.contains('hidden')){message('Acesso restrito ao administrador.',true);return;}tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','finance-params','availability','sac','occurrences','recipients','reasons','operational-summary'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='operational-summary')await loadOperationalSummary();if(t==='billing')await loadBilling();if(t==='finance-params')await loadFinanceParams();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
+async function showTab(t){if(t==='billing'&&!financeOwner){message('Faturamento restrito ao usuário autorizado.',true);return;}if(t==='finance-params'&&$('finance-params-nav').classList.contains('hidden')){message('Acesso restrito ao administrador.',true);return;}tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','finance-params','availability','sac','occurrences','recipients','reasons','operational-summary'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='operational-summary')await loadOperationalSummary();if(t==='billing')await loadBilling();if(t==='finance-params')await loadFinanceParams();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 const sideToggle=$('sidebar-toggle'),cadToggle=$('cadastros-toggle'),cadMenu=$('cadastros-submenu');
 sideToggle.onclick=()=>{const collapsed=document.body.classList.toggle('sidebar-collapsed');sideToggle.title=collapsed?'Expandir menu':'Recolher menu';sideToggle.querySelector('span').textContent=collapsed?'Expandir menu':'Recolher menu';};
@@ -1211,7 +1217,7 @@ $('payment-print').onclick=async()=>{
  doc.save(filename);
 };
 $('payment-confirm').onclick=async()=>{const selected=[...document.querySelectorAll('#payment-rows .pay-check:checked')];const date=$('payment-date').value;if(!date){$('payment-error').textContent='Informe a data do pagamento.';return;}if(!selected.length){$('payment-error').textContent='Selecione ao menos uma rota.';return;}const items=[];for(const el of selected){const r=paymentCandidates.find(x=>payKey(x)===el.dataset.id);const amount=Number(document.querySelector(`#payment-rows .pay-amount[data-id="${el.dataset.id}"]`).value);const state=payRowState(r);if(!Number.isFinite(amount)||amount<=0||amount>state.balance+0.001){$('payment-error').textContent='Valor inválido ou superior ao saldo da rota '+r.plan;return;}if(paymentMode==='SETTLEMENT'&&Math.abs(amount-state.balance)>0.009){$('payment-error').textContent='Quitação exige o pagamento integral do saldo. Para valor parcial, utilize Adiantamento.';return;}items.push({route_id:Number(r.routeId),plan:r.plan,route_date:r.date,driver:r.driver,amount,total_due:state.due,kind:paymentMode});}if(!confirm(`Confirmar ${items.length} pagamento(s) de ${paymentMode==='ADVANCE'?'adiantamento':'quitação'} em ${billingBR(date)}? Esta operação grava os pagamentos no banco.`))return;const btn=$('payment-confirm');btn.disabled=true;$('payment-error').textContent='';try{await rpc('pcd_payment_confirm',{p_items:items,p_paid_on:date});await payLoadRecords();$('payment-modal').classList.add('hidden');await loadBilling();message('Pagamentos registrados com sucesso.');}catch(e){$('payment-error').textContent=e.message;}finally{btn.disabled=false;}};
-async function loadBilling(){
+async function loadBilling(){requireFinanceOwner();
  await Promise.all([financeGetParams(),billingGetCosts()]);
  const search='',date=null; // Filtros financeiros aplicados após consolidação.
  // Consolidar o conjunto filtrado inteiro, não somente a página visível.
@@ -1229,7 +1235,7 @@ async function loadBilling(){
   .select('route_id,responsibility,action').limit(10000);
  if(continuityError)throw Error('Não foi possível consultar as regras financeiras da continuidade: '+continuityError.message);
  const continuityByRoute=new Map((continuityRows||[]).map(x=>[Number(x.route_id),x]));
- const missingContinuities=data.filter(x=>x.parent_route_id!=null&&!continuityByRoute.has(Number(x.id)));
+ const missingContinuities=data.filter(x=>x.parent_route_id!=null&&['CONTINUIDADE','TRANSFERENCIA'].includes(String(x.duplicate_kind||'').toUpperCase())&&!continuityByRoute.has(Number(x.id)));
  if(missingContinuities.length)throw Error('Há rotas derivadas sem classificação financeira. Faturamento bloqueado para evitar duplicidade.');
 
  const billingTotalEl=$('billing-total');if(billingTotalEl)billingTotalEl.textContent=billingTotal;
