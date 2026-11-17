@@ -279,12 +279,21 @@ async function loadRoutes(which){
    const select=document.createElement('select');
    select.className='sac-inline-select sac-status-select';
    for(const st of statuses){const o=document.createElement('option');o.value=st;o.textContent=st;select.append(o);}
+   for(const [value,label] of [['ACTION_CONTINUAR','CONTINUAR ROTA'],['ACTION_TRANSFERIR','TRANSFERIR CARRO']]){const o=document.createElement('option');o.value=value;o.textContent=label;select.append(o);}
    select.value=statuses.includes(status)?status:'EMPLACAR';
    select.disabled=!r.is_active;
    const styleStatus=()=>{select.dataset.status=select.value;};
    styleStatus();select.addEventListener('input',styleStatus);
    select.onchange=async()=>{
     const next=select.value,previous=status;
+    if(next==='ACTION_CONTINUAR'||next==='ACTION_TRANSFERIR'){
+     select.value=previous;styleStatus();
+     if(!r.is_active||status==='NÃO EMBARCOU'||r.duplicate_kind==='CONTINUIDADE'){
+      message('Esta rota não permite criar uma nova viagem.',true);return;
+     }
+     openContinuity(r,next==='ACTION_TRANSFERIR'?'TRANSFERIR':'CONTINUAR');
+     return;
+    }
     select.disabled=true;
     try{
      if(next==='NÃO EMBARCOU'){
@@ -303,14 +312,6 @@ async function loadRoutes(which){
    statusCell.textContent='';statusCell.append(select);
   }
   if(which==='routes'){
-   const planCell=tr.children[0];
-   const continuityBtn=document.createElement('button');
-   continuityBtn.type='button';continuityBtn.className='continuity-trigger';
-   continuityBtn.textContent='↪ Continuidade';
-   continuityBtn.title='Criar segunda viagem vinculada, sem valores financeiros';
-   continuityBtn.disabled=!r.is_active||status==='NÃO EMBARCOU'||r.duplicate_kind==='CONTINUIDADE';
-   continuityBtn.onclick=()=>openContinuity(r);
-   planCell.append(continuityBtn);
    const cityCell=tr.children[5];
    const cityLink=document.createElement('button');
    cityLink.type='button';cityLink.className='billing-city-link route-city-link';
@@ -418,10 +419,10 @@ function isoDateBR(s){const m=String(s||'').trim().match(/^(\d{2})\/(\d{2})\/(\d
 function driverPriority(d,r){const want=PROFILE_ORDER.indexOf(norm(r.vehicle_profile)),got=PROFILE_ORDER.indexOf(norm(d.profile));const available=d.day_status==='DISPONIVEL';return (available?0:10)+(got===want?0:got>want?1:2);}
 async function assignDriver(r,id){const d=(await rpc('pcd_v8_drivers',{p_date:r.route_date||r.loading_on})).find(x=>Number(x.id)===Number(id));if(!d)throw Error('Motorista não encontrado');const desired=PROFILE_ORDER.indexOf(norm(r.vehicle_profile)),actual=PROFILE_ORDER.indexOf(norm(d.profile));if(actual<desired&&!confirm('O perfil do motorista é inferior ao solicitado. Confirmar negociação excepcional?'))return false;let result=await rpc('pcd_v8_assign',{p_route_id:r.id,p_driver_id:Number(id),p_confirm_second:false});if(result.requires_confirmation){if(!confirm(result.message||'Motorista indisponível ou com outra rota. Confirma a escala negociada?'))return false;result=await rpc('pcd_v8_assign',{p_route_id:r.id,p_driver_id:Number(id),p_confirm_second:true});}return true;}
 async function openAssign(r){const all=await rpc('pcd_v8_drivers',{p_date:r.route_date||r.loading_on});const eligible=all.filter(d=>d.base_status!=='INATIVO').sort((a,b)=>driverPriority(a,r)-driverPriority(b,r)||a.name.localeCompare(b.name,'pt-BR'));const options=eligible.map(d=>`<option value="${d.id}">${esc(d.name)} · ${esc(d.profile)} · ${esc(d.plate)} · ${esc(d.day_status)}${Number(d.routes_count)?' ('+d.routes_count+' rota(s))':''}</option>`).join('');modal('Escalar motorista',`Plano ${r.plan_number} · ${brDate(r.route_date||r.loading_on)} · ${r.city} · ${r.vehicle_profile}`,`<label>Motoristas (compatíveis disponíveis primeiro)</label><select id="pick-driver"><option value="">Selecione...</option>${options}</select><p class="muted" id="pick-plate">A placa será preenchida automaticamente.</p><p class="note">Motoristas de perfil inferior, já programados ou indisponíveis exigem confirmação. Hierarquia: FIORINO &lt; VAN &lt; VUC &lt; MEDIO.</p>`,async()=>{const id=Number($('pick-driver').value);if(!id)throw Error('Selecione o motorista');if(!await assignDriver(r,id))throw Error('Escala cancelada');});$('pick-driver').onchange=()=>{const d=eligible.find(x=>x.id===Number($('pick-driver').value));$('pick-plate').textContent=d?`Placa: ${d.plate} · ${d.profile}`:'Selecione um motorista';};}
-function openContinuity(r){
+function openContinuity(r,action="CONTINUAR"){
  const d=r.route_date||r.loading_on||'';
- modal('Criar continuidade de rota',`Plano ${r.plan_number} · ${brDate(d)} · ${r.city||''}`,
- `<label>Data da segunda viagem</label><input type="date" id="continuity-date" value="${esc(d)}" required>
+ modal(action==='TRANSFERIR'?'Transferir carro':'Continuar rota',`Plano ${r.plan_number} · ${brDate(d)} · ${r.city||''}`,
+ `<p class="note">${action==='TRANSFERIR'?'Transferência do atendimento para outro veículo/motorista, mantendo vínculo com a viagem original.':'Segunda viagem para concluir entregas pendentes.'}</p><label>Data da segunda viagem</label><input type="date" id="continuity-date" value="${esc(d)}" required>
  <label>Motorista responsável</label><select id="continuity-driver"><option value="">Selecione...</option></select>
  <label>Quantidade de entregas pendentes</label><input type="number" id="continuity-deliveries" min="1" max="${Number(r.delivery_count)||9999}" step="1" placeholder="Entregas ainda pendentes">
  <label>Responsabilidade financeira</label><select id="continuity-responsibility"><option value="TRANSPORTADORA">Continuidade por responsabilidade da transportadora</option><option value="CLIENTE_AUTORIZADO">Frete adicional autorizado pelo cliente</option></select>
@@ -438,6 +439,7 @@ function openContinuity(r){
   if(!date||!driverId||!Number.isInteger(deliveries)||deliveries<1||deliveries>Number(r.delivery_count||9999))throw Error('Informe data, motorista e quantidade válida de entregas pendentes.');
   if(reason.length<10)throw Error('Informe justificativa com pelo menos 10 caracteres.');
   if(responsibility==='CLIENTE_AUTORIZADO'&&!authorization)throw Error('Informe a referência da autorização do cliente.');
+  throw Error('A gravação de continuidade/transferência depende da função segura do Supabase, ainda não instalada. Nenhuma alteração foi feita.');
   await rpc('pcd_v1326_create_continuity',{p_parent_route_id:Number(r.id),p_route_date:date,p_driver_id:driverId,p_delivery_count:deliveries,p_responsibility:responsibility,p_reason:reason,p_authorization:authorization||null});
  });
  rpc('pcd_v8_drivers',{p_date:d}).then(drivers=>{
