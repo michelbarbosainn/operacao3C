@@ -627,6 +627,7 @@ async function manageOccurrence(occId,route){
   const html=`<div class="occ-v92"><div class="note">Produção: envio somente aos destinatários <b>ATIVOS</b>. A lista é validada pelo Supabase antes do envio.</div>
   <h3>Evidências e anexos</h3><input id="occ-upload" type="file" accept=".pdf,.jpg,.jpeg,.png" multiple><button class="small" id="occ-upload-btn">Adicionar anexos</button><p class="muted">Até 10 MB por arquivo; PDF, JPG ou PNG. Para nota parcial/comprovante de encerramento, envie PDF.</p><div class="occ-files">${fileRows||'<small>Nenhum anexo cadastrado</small>'}</div>
   ${pendingInitial?`<div class="occ-retry-box"><b>Envio inicial pendente — fila #${Number(pendingInitial.id)}</b><p>Reprocesse a solicitação existente, sem criar outra ocorrência.</p><button id="occ-retry-initial" type="button">Processar envio pendente</button></div>`:''}
+  ${initialSent?'<div class="occ-retry-box"><b>Reenviar ocorrência já comunicada</b><p>Gera novo envio aos destinatários ATIVOS atuais, sem criar outra ocorrência. O envio anterior permanece no histórico.</p><button type="button" id="occ-resend-original">Reenviar ocorrência</button></div>':''}
   <h3>Envio de ocorrência</h3><label>Complemento (se houver)</label><textarea id="occ-complement" rows="2" placeholder="Informações adicionais para o e-mail complementar"></textarea>
   <button id="occ-send-v92" class="small">${hasInitial?'Enviar e-mail complementar':'Enviar ocorrência inicial de teste'}</button><p class="muted">Selecione os anexos que devem acompanhar este envio. Novos anexos podem ser incluídos posteriormente.</p>
   <h3>Histórico de envios</h3>${rows||'<p class="muted">Nenhum envio nesta versão.</p>'}
@@ -644,6 +645,20 @@ async function manageOccurrence(occId,route){
    }catch(e){message('Falha no anexo: '+e.message,true);}
   };
   if(pendingInitial){$('occ-retry-initial').onclick=async()=>{const b=$('occ-retry-initial');b.disabled=true;try{await processExistingQueue(Number(pendingInitial.id));await manageOccurrence(occId,route);}catch(e){message('Envio não confirmado: '+e.message,true);b.disabled=false;}};}
+  if(initialSent){$('occ-resend-original').onclick=async()=>{
+   const btn=$('occ-resend-original');
+   if(!confirm('Reenviar esta ocorrência aos destinatários ATIVOS atualmente cadastrados? O histórico anterior será preservado.'))return;
+   btn.disabled=true;
+   try{
+    // O marcador interno instrui a Edge Function a reenviar o corpo original.
+    // A fila usa COMPLEMENTO para não criar um segundo envio inicial.
+    const queued=await rpc('pcd_v92_queue_email',{p_occurrence_id:occId,p_kind:'COMPLEMENTO',p_note:'[INNOVA_REENVIO_ORIGINAL]',p_attachment_ids:files.map(f=>Number(f.id))});
+    const {data,error}=await db.functions.invoke('pcd-occurrence-send',{body:{queue_id:queued.id}});
+    if(error){let detail=error.message;try{const p=await error.context?.json?.();detail=p?.error||p?.message||detail;}catch{}throw Error('Fila #'+queued.id+': '+detail);}
+    if(!data?.ok)throw Error('Fila #'+queued.id+': '+(data?.error||'Envio não confirmado'));
+    message('Reenvio aceito pelo Resend. Fila #'+queued.id+'.');await manageOccurrence(occId,route);
+   }catch(e){message('Reenvio não confirmado: '+e.message,true);btn.disabled=false;}
+  };}
   $('occ-send-v92').onclick=async()=>{
    const btn=$('occ-send-v92');try{
     if(hasInitial&&!initialSent)throw Error('O envio inicial ainda não foi confirmado. Consulte o histórico.');
