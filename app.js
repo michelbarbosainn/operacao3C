@@ -7,8 +7,39 @@ function norm(s){return String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/
 function today(){return new Date().toLocaleDateString('en-CA',{timeZone:'America/Sao_Paulo'});}
 function table(head,data){return '<table><thead><tr>'+head.map(x=>`<th>${esc(x)}</th>`).join('')+'</tr></thead><tbody>'+data.map(r=>'<tr>'+r.map(v=>`<td>${esc(v)}</td>`).join('')+'</tr>').join('')+'</tbody></table>';}
 async function rpc(fn,args={}){const {data,error}=await db.rpc(fn,args);if(error)throw Error(error.message);return data;}
-async function init(){try{if(!cfg.supabaseUrl?.startsWith('https://')||!cfg.supabasePublishableKey||cfg.supabasePublishableKey.includes('SUBSTITUIR'))throw Error('Mantenha o config.js já configurado na V4. A chave pública não está preenchida.');db=createClient(cfg.supabaseUrl,cfg.supabasePublishableKey,{auth:{persistSession:true,autoRefreshToken:true}});const {data}=await db.auth.getSession();if(data.session)await enter(data.session.user);else message('Acesse com seu Google corporativo. O acesso por senha permanece temporariamente durante a migração.');}catch(e){message(e.message,true);}}
-async function enter(user){if(!String(user.email||'').toLowerCase().endsWith('@innovasl.com.br')){await db.auth.signOut();throw Error('Acesso restrito a contas corporativas @innovasl.com.br.');}await rpc('pcd_dashboard');$('who').textContent=user.email;const financeAdmin=String(user.email||'').toLowerCase()==='michelbarbosa@innovasl.com.br';$('finance-params-nav').classList.toggle('hidden',!financeAdmin);$('login-panel').classList.add('hidden');$('main').classList.remove('hidden');$('logout').classList.remove('hidden');await refreshMetrics();await showTab('routes');await refreshHealth();$('message').classList.add('hidden');}
+// V13.18: restaura a sessão antes de carregar dados operacionais.
+// Uma falha temporária de RPC não deve devolver o usuário autenticado à tela de login.
+let loginTransition=false;
+async function init(){
+ try{
+  if(!cfg.supabaseUrl?.startsWith('https://')||!cfg.supabasePublishableKey||cfg.supabasePublishableKey.includes('SUBSTITUIR'))throw Error('Mantenha o config.js já configurado na V4. A chave pública não está preenchida.');
+  db=createClient(cfg.supabaseUrl,cfg.supabasePublishableKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,storage:window.localStorage}});
+  const {data,error}=await db.auth.getSession();
+  if(error)throw error;
+  if(data?.session?.user){await enter(data.session.user);return;}
+  message('Acesse com seu Google corporativo. O acesso por senha permanece temporariamente durante a migração.');
+ }catch(e){message('Não foi possível restaurar a sessão: '+e.message,true);}
+}
+async function enter(user){
+ if(loginTransition)return;
+ loginTransition=true;
+ try{
+  if(!String(user?.email||'').toLowerCase().endsWith('@innovasl.com.br')){
+   await db.auth.signOut();throw Error('Acesso restrito a contas corporativas @innovasl.com.br.');
+  }
+  $('who').textContent=user.email;
+  const financeAdmin=String(user.email||'').toLowerCase()==='michelbarbosa@innovasl.com.br';
+  $('finance-params-nav').classList.toggle('hidden',!financeAdmin);
+  $('login-panel').classList.add('hidden');
+  $('main').classList.remove('hidden');
+  $('logout').classList.remove('hidden');
+  $('message').classList.add('hidden');
+  // As consultas são independentes da autenticação e não devem forçar novo login.
+  try{await refreshMetrics();}catch(e){message('Sessão mantida. Falha ao atualizar indicadores: '+e.message,true);}
+  try{await showTab('routes');}catch(e){message('Sessão mantida. Falha ao carregar programação: '+e.message,true);}
+  try{await refreshHealth();}catch(e){console.warn('Saúde do sistema indisponível:',e);}
+ }finally{loginTransition=false;}
+}
 $('login').onclick=async()=>{try{$('login').disabled=true;const {data,error}=await db.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});if(error)throw error;await enter(data.user);}catch(e){message('Não foi possível entrar: '+e.message,true);}finally{$('login').disabled=false;}};
 $('google-login').onclick=async()=>{try{if(!db)throw Error('Supabase não configurado.');const {error}=await db.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname,queryParams:{hd:'innovasl.com.br',prompt:'select_account'}}});if(error)throw error;}catch(e){message('Falha ao iniciar Google: '+e.message,true);}};
 $('logout').onclick=async()=>{await db.auth.signOut();location.reload();};
