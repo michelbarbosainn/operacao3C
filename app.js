@@ -439,10 +439,10 @@ function openContinuity(r,action="CONTINUAR"){
   if(!date||!driverId||!Number.isInteger(deliveries)||deliveries<1||deliveries>Number(r.delivery_count||9999))throw Error('Informe data, motorista e quantidade válida de entregas pendentes.');
   if(reason.length<10)throw Error('Informe justificativa com pelo menos 10 caracteres.');
   if(responsibility==='CLIENTE_AUTORIZADO'&&!authorization)throw Error('Informe a referência da autorização do cliente.');
-  throw Error('A gravação de continuidade/transferência depende da função segura do Supabase, ainda não instalada. Nenhuma alteração foi feita.');
-  await rpc('pcd_v1326_create_continuity',{p_parent_route_id:Number(r.id),p_route_date:date,p_driver_id:driverId,p_delivery_count:deliveries,p_responsibility:responsibility,p_reason:reason,p_authorization:authorization||null});
+
+  await rpc('pcd_v1326_create_continuity',{p_parent_route_id:Number(r.id),p_route_date:date,p_driver_id:driverId,p_delivery_count:deliveries,p_responsibility:responsibility,p_reason:reason,p_authorization:authorization||null,p_action:action});
  });
- $('modal-save').disabled=true;$('modal-save').textContent='Aguardando integração';
+
  rpc('pcd_v8_drivers',{p_date:d}).then(drivers=>{
   const sel=$('continuity-driver');if(!sel)return;
   for(const x of drivers.filter(x=>x.base_status!=='INATIVO')){const opt=document.createElement('option');opt.value=x.id;opt.textContent=`${x.name} · ${x.profile} · ${x.plate}`;sel.append(opt);}
@@ -1203,6 +1203,13 @@ async function loadBilling(){
   if(!batch.length)break;
  }while(routeOffset<expected);
  billingTotal=expected;const data=allRoutes;
+ const {data:continuityRows,error:continuityError}=await db.from('pcd_route_continuities')
+  .select('route_id,responsibility,action').limit(10000);
+ if(continuityError)throw Error('Não foi possível consultar as regras financeiras da continuidade: '+continuityError.message);
+ const continuityByRoute=new Map((continuityRows||[]).map(x=>[Number(x.route_id),x]));
+ const missingContinuities=data.filter(x=>x.parent_route_id!=null&&!continuityByRoute.has(Number(x.id)));
+ if(missingContinuities.length)throw Error('Há rotas derivadas sem classificação financeira. Faturamento bloqueado para evitar duplicidade.');
+
  const billingTotalEl=$('billing-total');if(billingTotalEl)billingTotalEl.textContent=billingTotal;
  const notes=await billingInvoices(data.map(r=>r.plan_number));
  const invoiceValues=new Map(),invoiceKeys=new Map();
@@ -1228,7 +1235,7 @@ async function loadBilling(){
  }}
  const supplier='';if(supplier){const {data:ee,error}=await db.from('pcd_billing_supplier_rates').select('supplier_name,vehicle_profile,band,amount,effective_from,effective_until').eq('supplier_name',supplier).limit(500);if(error)throw error;exceptions.push(...(ee||[]));}
  $('billing-rates-status').textContent=cityRates.length?'Disponível':'Sem correspondência';$('billing-tolls-status').textContent=tollRates.length?'Disponível':'Sem correspondência';
- const grouped=new Map();for(const r of data){const key=String(r.plan_number)+'|'+String(r.route_date||r.loading_on||'')+'|'+String(r.vehicle_profile||'');if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(r);}
+ const grouped=new Map();for(const r of data){const key=r.parent_route_id!=null?'CONTINUIDADE|'+String(r.id):String(r.plan_number)+'|'+String(r.route_date||r.loading_on||'')+'|'+String(r.vehicle_profile||'');if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(r);}
  const result=[],metadata=[],summaryRows=[],filterFacts=[];for(const group of grouped.values()){
   const r=group[0],plan=String(r.plan_number),noteCities=[...(invoiceCities.get(plan)||[])],cityList=noteCities.length?noteCities:[...new Set(group.map(x=>billingNorm(x.city)).filter(Boolean))];
   const contractedProfile=billingNorm(r.vehicle_profile);
@@ -1244,7 +1251,9 @@ async function loadBilling(){
   const cityTolls=decisive?tollRates.filter(x=>billingNorm(x.city)===billingNorm(decisive.routeCity)):[];
   const toll=cityTolls.length?Number(cityTolls[0].amount)*billingTollMultiplier(prof):null;
   const freight=override?Number(override.amount):payableRate?Number(payableRate.freight_payable):null;
-  const revenue=decisive?.revenue_reference==null?null:Number(decisive.revenue_reference);
+  let revenue=decisive?.revenue_reference==null?null:Number(decisive.revenue_reference);
+  const continuation=continuityByRoute.get(Number(r.id));
+  if(continuation?.responsibility==='TRANSPORTADORA')revenue=0;
   const id=String(r.id||plan+'|'+dateKey),comp=billingComplements.get(id)||{amount:0,reason:''};
   const note=!noteCities.length?'Sem notas vinculadas — cidade operacional':matched.length!==cityList.length?'Cidade/perfil sem tabela':!decisive?'Cidade/perfil sem tabela':cityTolls.length>1&&new Set(cityTolls.map(x=>Number(x.amount))).size>1?'Pedágios divergentes':!cityTolls.length?'Pedágio sem referência':override?'Exceção fornecedor':'Tabela padrão';
   const details=cityList.map(city=>{const candidates=matched.filter(x=>x.routeCity===city).sort((a,b)=>Number(b.band)-Number(a.band)||Number(b.distance_km||0)-Number(a.distance_km||0));return {city,band:candidates[0]?.band??null,distance:candidates[0]?.distance_km??null};}).sort((a,b)=>Number(b.band||0)-Number(a.band||0)||Number(b.distance||0)-Number(a.distance||0));
@@ -1258,12 +1267,12 @@ async function loadBilling(){
   const operatingRate=billingCostRate('DESP_OPER',dateKey);
   const goods=invoiceValues.get(plan)?.sum??null;
   const icms=revenue==null||icmsRate==null?null:revenue*icmsRate/100;
-  const aver=goods==null||averRate==null?null:goods*averRate/100;
+  const aver=continuation?0:(goods==null||averRate==null?null:goods*averRate/100);
   const otherTaxes=revenue==null||otherTaxRate==null?null:revenue*otherTaxRate/100;
   const totalTaxes=icms==null||otherTaxes==null?null:icms+otherTaxes;
   const adminCost=revenue==null||adminRate==null?null:revenue*adminRate/100;
   const invoiceCount=invoiceKeys.get(plan)?.size??0;
-  const cteCost=cteUnit==null||!invoiceCount?null:cteUnit*invoiceCount;
+  const cteCost=continuation?0:(cteUnit==null||!invoiceCount?null:cteUnit*invoiceCount);
   const operatingCost=revenue==null||operatingRate==null?null:revenue*operatingRate/100;
   const advance=freight==null||toll==null?null:(freight+Number(comp.amount||0))*0.5+toll;
   const total=freight==null||toll==null?null:freight+toll+Number(comp.amount||0);
