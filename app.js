@@ -194,7 +194,7 @@ async function loadOperationalSummary(){
  const info=$('ops-info');info.textContent='Consultando todas as rotas...';
  try{
   const all=await v13FetchAll('');
-  const data=all.filter(r=>(!routeDate||String(r.route_date||'').slice(0,10)===routeDate)&&(!requestDate||String(r.request_date||'').slice(0,10)===requestDate)&&(!profile||norm(r.vehicle_profile)===profile)&&(!driver||norm(r.driver_name).includes(driver)));
+  const data=all.filter(r=>(!start||String(r.route_date||'').slice(0,10)>=start)&&(!end||String(r.route_date||'').slice(0,10)<=end)&&(!profile||norm(r.vehicle_profile)===profile)&&(!driver||norm(r.driver_name).includes(driver)));
   const active=data.filter(r=>routeDisplayStatus(r)!=='NÃO EMBARCOU');
   const sum=(arr,key)=>arr.reduce((n,r)=>n+(Number(r[key])||0),0);
   const countStatus=name=>data.filter(r=>routeDisplayStatus(r)===name).length;
@@ -233,6 +233,10 @@ async function loadRoutes(which){
   const all=await v13FetchAll(search);
   const filtered=all.filter(r=>(!routeDate||String(r.route_date||'').slice(0,10)===routeDate)&&(!requestDate||String(r.request_date||'').slice(0,10)===requestDate)&&(!profileFilter||norm(r.vehicle_profile)===norm(profileFilter))&&(!selectedStatuses.length||selectedStatuses.includes(routeDisplayStatus(r)))&&(!driver||norm(r.driver_name).includes(driver)));
   totals.sac=filtered.length;
+  const countStatus=name=>filtered.filter(r=>routeDisplayStatus(r)===name).length;
+  const sacCards=[['Rotas acompanhadas',filtered.length],['Em rota',countStatus('EM ROTA')],['Concluídas',countStatus('CONCLUÍDO')],['A emplacar',countStatus('EMPLACAR')],['Não embarcaram',countStatus('NÃO EMBARCOU')],['Entregas previstas',filtered.reduce((n,r)=>n+(Number(r.delivery_count)||0),0)]];
+  const sacSummary=$('sac-summary');
+  if(sacSummary)sacSummary.innerHTML=sacCards.map(([label,value])=>`<div class="v13-card"><small>${esc(label)}</small><strong>${Number(value).toLocaleString('pt-BR')}</strong></div>`).join('');
   a={total:filtered.length};data=filtered.slice(pages.sac*50,(pages.sac+1)*50);
  }
  const headers=which==='routes'?['Plano','Complemento Solicitação','Data rota','Data car.','Hora car.','Cidade','Peso','Valor NF','Entregas','Perfil','Motorista','Placa','Status rota','Carregado','GreenMile']:['Plano','Complemento','Solicitação','Data rota','Data car.','Hora car.','Cidade','Perfil','Peso','Entregas','Valor NF','Motorista','Placa','Status rota','GreenMile'];
@@ -403,7 +407,7 @@ async function loadRoutes(which){
    gmCell.textContent='';gmCell.append(gm);
   }
  });
- if(which==='routes'){
+ {
   // Indicadores carregados somente para os planos da pagina visivel; limite de concorrencia.
   const jobs=data.map((r,i)=>({r,tr:target.querySelectorAll('tbody tr')[i]}));
   let cursor=0;
@@ -497,7 +501,15 @@ function num(s){
   if(!Number.isFinite(n))throw Error('Número inválido '+original);
   return n;
 }
-function convert(obj){const get=n=>{const key=Object.keys(obj).find(k=>norm(k)===norm(n));return String(obj[key]??'').trim();};const plan=get('PLANO');if(!plan)return null;const loading_on=dateBR(get('DATA CAR'));if(!loading_on)throw Error('Plano '+plan+': DATA CAR obrigatória');return {plan_number:plan,complement:get('COMPLEMENTO'),transport:get('TRANS.'),destination:get('DESTINO'),city:get('CIDADE'),neighborhood:get('BAIRRO'),vehicle_profile:get('PERFIL'),gross_weight:num(get('PESO')),delivery_count:num(get('QTD ENTREGA')),invoiced_on:dateBR(get('DATA FATURADO')),operation_type:get('TIPO DE OPERAÇÃO'),merchandise_value:num(get('R$')),loading_on,loading_time:get('HOR. CAR'),driver_name:get('MOTORISTA'),plate:get('PLACA')};}
+function moneyBRImport(raw){
+ const original=String(raw??'').trim();
+ const value=original.replace(/^R\$/i,'').replace(/\s/g,'');
+ if(!value)return null;
+ // Coluna R$ da planilha: 21.070 = 21070, mas 21,07 = 21.07.
+ if(/^[+-]?\d{1,3}(?:\.\d{3})+$/.test(value))return Number(value.replace(/\./g,''));
+ return num(raw);
+}
+function convert(obj){const get=n=>{const key=Object.keys(obj).find(k=>norm(k)===norm(n));return String(obj[key]??'').trim();};const plan=get('PLANO');if(!plan)return null;const loading_on=dateBR(get('DATA CAR'));if(!loading_on)throw Error('Plano '+plan+': DATA CAR obrigatória');return {plan_number:plan,complement:get('COMPLEMENTO'),transport:get('TRANS.'),destination:get('DESTINO'),city:get('CIDADE'),neighborhood:get('BAIRRO'),vehicle_profile:get('PERFIL'),gross_weight:num(get('PESO')),delivery_count:num(get('QTD ENTREGA')),invoiced_on:dateBR(get('DATA FATURADO')),operation_type:get('TIPO DE OPERAÇÃO'),merchandise_value:moneyBRImport(get('R$')),loading_on,loading_time:get('HOR. CAR'),driver_name:get('MOTORISTA'),plate:get('PLACA')};}
 $('preview').onclick=async()=>{try{const raw=$('paste').value.trim();if(!raw)throw Error('Cole as rotas com o cabeçalho.');const sep=raw.split(/\r?\n/)[0].includes('\t')?'\t':',';const m=parseDelimited(raw,sep),head=m.shift().map(x=>x.trim());if(!head.some(x=>norm(x)==='PLANO')||!head.some(x=>norm(x)==='DATACAR'))throw Error('Inclua o cabeçalho PLANO e DATA CAR.');pending=m.filter(r=>r.some(v=>v.trim())).map((r,i)=>{try{return convert(Object.fromEntries(head.map((h,j)=>[h,r[j]||''])));}catch(e){throw Error(`Linha ${i+2}: ${e.message}`);}}).filter(Boolean);if(!pending.length||pending.length>1000)throw Error('Envie entre 1 e 1000 rotas.');checks=await rpc('pcd_v5_check_import',{p_rows:pending});const tbody=pending.map((r,i)=>[r.plan_number,r.loading_on,r.city,r.vehicle_profile,r.driver_name,checks[i].duplicate?'DUPLICADA':'NOVA','']);$('import-preview').innerHTML=table(['Plano','Data','Cidade','Perfil','Motorista','Análise','Decisão'],tbody);$('import-preview').querySelectorAll('tbody tr').forEach((tr,i)=>{const cell=tr.lastElementChild;if(checks[i].duplicate){const select=document.createElement('select');select.dataset.index=i;select.innerHTML='<option value="">Escolha...</option><option value="REENTREGA">Reentrega</option><option value="DUPLICADA_INATIVA">Duplicada — inativa</option><option value="NAO_EMBARCOU_REPROGRAMAR">Não embarcou — reprogramar</option>';select.onchange=()=>{let note=cell.querySelector('.v1322-reason');if(select.value==='NAO_EMBARCOU_REPROGRAMAR'){if(!note){note=document.createElement('textarea');note.className='v1322-reason';note.placeholder='Justificativa obrigatória (ex.: veículo quebrado na rota anterior)';note.maxLength=1000;note.rows=2;note.oninput=validateImport;cell.append(note);}}else if(note){note.remove();}validateImport();};cell.append(select);}else cell.textContent='Nova rota';});$('import-count').textContent=`${pending.length} rota(s) · ${checks.filter(x=>x.duplicate).length} duplicada(s)`;validateImport();message('Confira a análise. Duplicidades exigem decisão antes de salvar.');}catch(e){pending=[];checks=[];$('import-save').disabled=true;message(e.message,true);}};
 function validateImport(){$('import-save').disabled=!pending.length||[...$('import-preview').querySelectorAll('select[data-index]')].some(s=>!s.value||(s.value==='NAO_EMBARCOU_REPROGRAMAR'&&!s.parentElement.querySelector('.v1322-reason')?.value.trim()));}
 $('paste').oninput=()=>{$('import-save').disabled=true;pending=[];};
