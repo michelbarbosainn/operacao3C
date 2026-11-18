@@ -731,15 +731,15 @@ async function openPlanInvoices(r){
    rpc('pcd_v9_list_occurrences',{p_plan:r.plan_number})
   ]);
   const groups=new Map();
-  for(const nf of invoices){const key=String(nf.customer_code||'')+'|'+String(nf.customer_name||'');if(!groups.has(key))groups.set(key,[]);groups.get(key).push(nf);}
+  for(const nf of invoices){const key=String(nf.customer_code||'').trim()+'|'+String(nf.customer_name||'').trim();if(!groups.has(key))groups.set(key,[]);groups.get(key).push(nf);}
   const brMoney=n=>n==null?'—':Number(n).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
   const brWeight=n=>n==null?'—':Number(n).toLocaleString('pt-BR',{maximumFractionDigits:3})+' kg';
   let html=`<div class="occ-stats"><span><b>${invoices.length}</b> NFs</span><span><b>${groups.size}</b> destinatários</span><span><b>${existing.length}</b> ocorrências registradas</span></div>`;
   if(!invoices.length)html+='<p class="note">Nenhuma nota vinculada ao plano. Importe as NFs e confira Ordem de Frete = PLANO.</p>';
   for(const [key,notes] of groups){
    const [code,name]=key.split('|');const city=notes[0].city||'—';const customerOcc=existing.filter(o=>String(o.customer_code)===code);const marker=customerOcc.length?(customerOcc.some(o=>o.status!=='ENCERRADA')?'🔴 ':'🟢 '):'';
-   html+=`<details class="occ-customer"><summary><strong>${marker}${esc(name||'Cliente não informado')}</strong><small>${esc(code)} · ${esc(city)} · ${notes.length} NF(s) · ${brWeight(notes.reduce((sum,x)=>sum+Number(x.gross_weight||0),0))}</small></summary><div class="scroll"><table class="occ-table"><thead><tr><th><input type="checkbox" class="occ-select-all" aria-label="Selecionar notas do destinatário"></th><th>NF</th><th>Cliente</th><th>Cidade</th><th>Peso</th><th>Valor</th></tr></thead><tbody>`;
-   for(const nf of notes)html+=`<tr><td><input type="checkbox" class="occ-nf" data-id="${Number(nf.id)}" data-customer="${esc(code)}"></td><td>${esc(nf.invoice_number)}</td><td>${esc(nf.customer_name)}</td><td>${esc(nf.city)}</td><td>${brWeight(nf.gross_weight)}</td><td>${brMoney(nf.invoice_value)}</td></tr>`;
+   html+=`<details class="occ-customer"><summary><strong>${marker}${esc(name||'Cliente não informado')} · Loja ${esc(code||'sem código')}</strong><small>${esc(code)} · ${esc(city)} · ${notes.length} NF(s) · ${brWeight(notes.reduce((sum,x)=>sum+Number(x.gross_weight||0),0))}</small></summary><div class="scroll"><table class="occ-table"><thead><tr><th><input type="checkbox" class="occ-select-all" aria-label="Selecionar notas do destinatário"></th><th>NF</th><th>Cód. cliente</th><th>Cliente</th><th>Cidade</th><th>Peso</th><th>Valor</th></tr></thead><tbody>`;
+   for(const nf of notes)html+=`<tr><td><input type="checkbox" class="occ-nf" data-id="${Number(nf.id)}" data-customer="${esc(code)}"></td><td>${esc(nf.invoice_number)}</td><td>${esc(nf.customer_code||'—')}</td><td>${esc(nf.customer_name)}</td><td>${esc(nf.city)}</td><td>${brWeight(nf.gross_weight)}</td><td>${brMoney(nf.invoice_value)}</td></tr>`;
    html+='</tbody></table></div></details>';
   }
   if(invoices.length){
@@ -760,7 +760,7 @@ async function openPlanInvoices(r){
    try{
     const marked=[...body.querySelectorAll('.occ-nf:checked')];
     if(!marked.length)throw Error('Selecione ao menos uma nota fiscal.');
-    if(new Set(marked.map(x=>x.dataset.customer)).size!==1)throw Error('Registre uma ocorrência por destinatário.');
+    if(new Set(marked.map(x=>x.dataset.customer)).size!==1)throw Error('Registre uma ocorrência por código de cliente (loja).');
     const reason=Number($('occ-reason').value),description=$('occ-description').value.trim();
     if(!reason||!description)throw Error('Informe o motivo e a descrição.');
     const files=[...$('occ-initial-files').files];
