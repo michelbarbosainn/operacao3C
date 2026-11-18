@@ -723,35 +723,46 @@ $('nf-paste').value=grid.map(row=>row.map(v=>String(v??'').replace(/[\t\r\n]/g,'
 $('nf-preview').onclick=()=>{try{nfPending=parseNFs($('nf-paste').value.trim());if(!nfPending.length||nfPending.length>1000)throw Error('Envie entre 1 e 1000 notas por lote.');$('nf-preview-table').innerHTML=table(['NF','Faturamento','Cliente','Destinatário','Plano','Cidade','Peso (kg)','Valor'],nfPending.map(x=>[x.invoice_number,x.invoiced_on,x.customer_code,x.customer_name,x.plan_number,x.city,(x.gross_weight==null?'':Number(x.gross_weight).toLocaleString('pt-BR')+' kg'),(x.invoice_value==null?'':Number(x.invoice_value).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}))]));$('nf-count').textContent=nfPending.length+' nota(s) conferidas';$('nf-save').disabled=false;}catch(e){nfPending=[];$('nf-save').disabled=true;message(e.message,true);}};
 $('nf-paste').oninput=()=>{$('nf-save').disabled=true;nfPending=[];};
 $('nf-save').onclick=async()=>{try{if(!nfPending.length)throw Error('Confira as notas primeiro.');if(!confirm('Salvar '+nfPending.length+' notas fiscais no banco?'))return;$('nf-save').disabled=true;const a=await rpc('pcd_v8_import_invoices',{p_rows:nfPending});message(`Notas processadas: ${a.total}. Inseridas: ${a.inserted}. Atualizadas: ${a.updated}.`);nfPending=[];$('nf-paste').value='';$('nf-preview-table').innerHTML='';$('nf-count').textContent='';await rpc('pcd_v91_log_import',{p_kind:'NOTAS',p_source:'MANUAL',p_source_id:'notas-'+Date.now(),p_total:a.inserted||a.total||0,p_status:'SUCESSO',p_details:null});await refreshHealth();}catch(e){message(e.message,true);}};
+// V13.58: somente numeros de plano completos no complemento operacional.
+// Nunca interpretar datas, pesos ou valores como numero de plano.
+function linkedOccurrencePlans(r){
+ const main=String(r.plan_number??'').trim();
+ const raw=String(r.complement??'');
+ const candidates=raw.match(/(?<!\d)\d{9,12}(?!\d)/g)||[];
+ return [main,...new Set(candidates.filter(x=>x!==main))];
+}
 async function openPlanInvoices(r){
  try{
-  const [invoices,reasons,existing]=await Promise.all([
-   rpc('pcd_v8_plan_invoices',{p_plan:r.plan_number}),
+  const plans=linkedOccurrencePlans(r);
+  const [invoiceSets,reasons,occurrenceSets]=await Promise.all([
+   Promise.all(plans.map(p=>rpc('pcd_v8_plan_invoices',{p_plan:p}))),
    rpc('pcd_v9_reasons'),
-   rpc('pcd_v9_list_occurrences',{p_plan:r.plan_number})
+   Promise.all(plans.map(p=>rpc('pcd_v9_list_occurrences',{p_plan:p})))
   ]);
+  const invoices=invoiceSets.flatMap((set,index)=>(Array.isArray(set)?set:[]).map(nf=>({...nf,plan_number:String(nf.plan_number||plans[index]).trim()})));
+  const existing=occurrenceSets.flatMap((set,index)=>(Array.isArray(set)?set:[]).map(o=>({...o,origin_plan:plans[index]})));
   const groups=new Map();
-  for(const nf of invoices){const key=String(nf.customer_code||'').trim()+'|'+String(nf.customer_name||'').trim();if(!groups.has(key))groups.set(key,[]);groups.get(key).push(nf);}
+  for(const nf of invoices){const key=String(nf.plan_number||'').trim()+'|'+String(nf.customer_code||'').trim();if(!groups.has(key))groups.set(key,[]);groups.get(key).push(nf);}
   const brMoney=n=>n==null?'—':Number(n).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
   const brWeight=n=>n==null?'—':Number(n).toLocaleString('pt-BR',{maximumFractionDigits:3})+' kg';
   let html=`<div class="occ-stats"><span><b>${invoices.length}</b> NFs</span><span><b>${groups.size}</b> destinatários</span><span><b>${existing.length}</b> ocorrências registradas</span></div>`;
   if(!invoices.length)html+='<p class="note">Nenhuma nota vinculada ao plano. Importe as NFs e confira Ordem de Frete = PLANO.</p>';
   for(const [key,notes] of groups){
-   const [code,name]=key.split('|');const city=notes[0].city||'—';const customerOcc=existing.filter(o=>String(o.customer_code)===code);const marker=customerOcc.length?(customerOcc.some(o=>o.status!=='ENCERRADA')?'🔴 ':'🟢 '):'';
-   html+=`<details class="occ-customer"><summary><strong>${marker}${esc(name||'Cliente não informado')} · Loja ${esc(code||'sem código')}</strong><small>${esc(code)} · ${esc(city)} · ${notes.length} NF(s) · ${brWeight(notes.reduce((sum,x)=>sum+Number(x.gross_weight||0),0))}</small></summary><div class="scroll"><table class="occ-table"><thead><tr><th><input type="checkbox" class="occ-select-all" aria-label="Selecionar notas do destinatário"></th><th>NF</th><th>Cód. cliente</th><th>Cliente</th><th>Cidade</th><th>Peso</th><th>Valor</th></tr></thead><tbody>`;
-   for(const nf of notes)html+=`<tr><td><input type="checkbox" class="occ-nf" data-id="${Number(nf.id)}" data-customer="${esc(code)}"></td><td>${esc(nf.invoice_number)}</td><td>${esc(nf.customer_code||'—')}</td><td>${esc(nf.customer_name)}</td><td>${esc(nf.city)}</td><td>${brWeight(nf.gross_weight)}</td><td>${brMoney(nf.invoice_value)}</td></tr>`;
+   const [originPlan,code]=key.split('|');const name=notes[0].customer_name||'';const city=notes[0].city||'—';const customerOcc=existing.filter(o=>String(o.customer_code)===code&&String(o.origin_plan)===originPlan);const marker=customerOcc.length?(customerOcc.some(o=>o.status!=='ENCERRADA')?'🔴 ':'🟢 '):'';
+   html+=`<details class="occ-customer"><summary><strong>${marker}${esc(name||'Cliente não informado')} · Loja ${esc(code||'sem código')} · ${originPlan===plans[0]?'Principal':'Complementar'} ${esc(originPlan)}</strong><small>${esc(code)} · ${esc(city)} · ${notes.length} NF(s) · ${brWeight(notes.reduce((sum,x)=>sum+Number(x.gross_weight||0),0))}</small></summary><div class="scroll"><table class="occ-table"><thead><tr><th><input type="checkbox" class="occ-select-all" aria-label="Selecionar notas do destinatário"></th><th>NF</th><th>Cód. cliente</th><th>Cliente</th><th>Cidade</th><th>Peso</th><th>Valor</th></tr></thead><tbody>`;
+   for(const nf of notes)html+=`<tr><td><input type="checkbox" class="occ-nf" data-id="${Number(nf.id)}" data-customer="${esc(code)}" data-plan="${esc(originPlan)}"></td><td>${esc(nf.invoice_number)}</td><td>${esc(nf.customer_code||'—')}</td><td>${esc(nf.customer_name)}</td><td>${esc(nf.city)}</td><td>${brWeight(nf.gross_weight)}</td><td>${brMoney(nf.invoice_value)}</td></tr>`;
    html+='</tbody></table></div></details>';
   }
   if(invoices.length){
    html+=`<div class="occ-form"><div class="occ-two"><div><label>Motivo da ocorrência</label><select id="occ-reason"><option value="">Selecione...</option>${reasons.map(x=>`<option value="${Number(x.id)}">${esc(x.name)}</option>`).join('')}</select></div><div><label>Notas selecionadas</label><div id="occ-selected" class="occ-count">0 NF(s)</div></div></div><label>Descrição da ocorrência</label><textarea id="occ-description" maxlength="2000" placeholder="Descreva objetivamente o ocorrido e o apoio solicitado."></textarea><div class="occ-first-upload"><label for="occ-initial-files">Evidências (opcional)</label><input id="occ-initial-files" type="file" accept=".pdf,.jpg,.jpeg,.png" multiple><small>PDF, JPG ou PNG; até 10 MB por arquivo. Novos anexos podem ser adicionados depois.</small></div><button type="button" id="occ-create-send" class="occ-primary-send">Registrar e enviar ocorrência</button><p class="muted">Produção: o envio é direcionado somente aos e-mails ATIVOS cadastrados. Em caso de falha, utilize o histórico para reenviar sem duplicar a ocorrência.</p></div>`;
   }
-  html+='<h3 class="occ-history-title">Histórico do plano</h3>';
+  html+='<h3 class="occ-history-title">Histórico dos planos vinculados</h3>';
   if(!existing.length)html+='<p class="muted">Nenhuma ocorrência registrada neste plano.</p>';
   for(const o of existing){
    const nfs=(o.invoices||[]).map(x=>x.number).join(', ');
-   html+=`<div class="occ-history"><b>OC-${new Date(o.created_at).getFullYear()}-${String(o.id).padStart(6,'0')}</b> · <span class="occ-status">${esc(o.status)}</span><div>${esc(o.customer_name)} · ${esc(o.city)} · ${esc(o.reason)}</div><small>NF(s): ${esc(nfs)} · ${new Date(o.created_at).toLocaleString('pt-BR')}</small><p>${esc(o.description)}</p><div class="occ-actions"><button class="small occ-manage" data-occ-id="${Number(o.id)}">Gerenciar / Anexos / Envio / Encerramento</button></div></div>`;
+   html+=`<div class="occ-history"><b>OC-${new Date(o.created_at).getFullYear()}-${String(o.id).padStart(6,'0')}</b> · <span class="occ-status">${esc(o.status)}</span><div>${esc(o.customer_name)} · ${esc(o.city)} · ${esc(o.reason)} · Plano ${esc(o.origin_plan)}</div><small>NF(s): ${esc(nfs)} · ${new Date(o.created_at).toLocaleString('pt-BR')}</small><p>${esc(o.description)}</p><div class="occ-actions"><button class="small occ-manage" data-occ-id="${Number(o.id)}">Gerenciar / Anexos / Envio / Encerramento</button></div></div>`;
   }
-  modal('Notas fiscais e ocorrências',`Plano ${r.plan_number} · ${r.city||'—'} · ${r.driver_name||'Motorista não escalado'}`,html,async()=>{});
+  modal('Notas fiscais e ocorrências',`Plano ${r.plan_number}${plans.length>1?' · Complemento(s): '+plans.slice(1).join(', '):''} · ${r.city||'—'} · ${r.driver_name||'Motorista não escalado'}`,html,async()=>{});
   $('modal-save').classList.add('hidden');
   const body=$('modal-body');
   const createButton=$('occ-create-send');
@@ -761,13 +772,16 @@ async function openPlanInvoices(r){
     const marked=[...body.querySelectorAll('.occ-nf:checked')];
     if(!marked.length)throw Error('Selecione ao menos uma nota fiscal.');
     if(new Set(marked.map(x=>x.dataset.customer)).size!==1)throw Error('Registre uma ocorrência por código de cliente (loja).');
+    if(new Set(marked.map(x=>x.dataset.plan)).size!==1)throw Error('Registre separadamente as notas de cada plano de origem.');
     const reason=Number($('occ-reason').value),description=$('occ-description').value.trim();
     if(!reason||!description)throw Error('Informe o motivo e a descrição.');
     const files=[...$('occ-initial-files').files];
     if(files.some(f=>!['application/pdf','image/jpeg','image/png'].includes(f.type)||f.size<1||f.size>10485760))throw Error('Anexo inválido. Utilize PDF/JPG/PNG de até 10 MB.');
     if(files.reduce((n,f)=>n+f.size,0)>12*1024*1024)throw Error('O total de anexos excede 12 MB.');
     createButton.disabled=true;createButton.textContent='Registrando ocorrência...';
-    const created=await rpc('pcd_v9_create_occurrence',{p_plan:r.plan_number,p_invoice_ids:marked.map(x=>Number(x.dataset.id)),p_reason_id:reason,p_description:description});
+    // A RPC exige que todas as NFs pertençam a p_plan. Registrar no plano real
+    // da NF preserva a integridade e o envio sem alterar funcoes em producao.
+    const created=await rpc('pcd_v9_create_occurrence',{p_plan:marked[0].dataset.plan,p_invoice_ids:marked.map(x=>Number(x.dataset.id)),p_reason_id:reason,p_description:description});
     createdId=Number(created.id||created.occurrence_id);
     if(!Number.isSafeInteger(createdId)||createdId<1)throw Error('Ocorrência criada, mas o identificador não foi retornado. Verifique o histórico antes de repetir.');
     const ids=[];
