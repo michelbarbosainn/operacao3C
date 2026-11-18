@@ -483,3 +483,10 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 #sac-table button.gm-performance-indicator[data-level="high"]{background:#e4f6eb!important;color:#14653a!important;border:1px solid #c4e9d1!important}
 #sac-table button.gm-performance-indicator[data-level="none"]{background:#f1f5f9!important;color:#64748b!important;border:1px solid #e2e8f0!important}
 #sac-table button.gm-performance-indicator[data-source="manual"]{outline:1px dashed currentColor;outline-offset:1px}
+
+/* V13.50: feedback junto ao botao de importacao no cabecalho SAC */
+.gm-sac-actions{align-items:flex-start;gap:10px}
+.gm-import-action{display:flex;flex-direction:column;align-items:flex-start;gap:5px;max-width:min(570px,65vw)}
+.gm-import-feedback{display:block;font-size:11px;line-height:1.35;overflow-wrap:anywhere;max-width:100%}
+.gm-import-feedback:empty{display:none}
+@media(max-width:720px){.gm-import-action{max-width:100%}.gm-sac-actions{justify-content:flex-start}}

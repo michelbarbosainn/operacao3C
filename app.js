@@ -57,7 +57,7 @@ const topKpiTemplates={
  import:['Rotas cadastradas','Motoristas cadastrados','Disponíveis na data','Programados na data','Novas importações','Falhas de importação'],
  availability:['Motoristas cadastrados','Disponíveis','Indisponíveis','Programados','Inativos','Cadastros pendentes'],
  routes:['Rotas ofertadas','Programadas','A emplacar','Não embarcaram','Peso total','Entregas totais'],
- sac:['Rotas acompanhadas','Em rota','Concluídas','A emplacar','Não embarcaram','Entregas previstas'],
+ sac:['Rotas acompanhadas','Em rota','Concluídas','Não embarcaram','Entregas previstas','Ocorrências'],
  occurrences:['Ocorrências nos filtros','Abertas','Encerradas','E-mails com atenção','Em tratativa','Sem envio'],
  'operational-summary':['Rotas consultadas','Programadas','Em rota','Concluídas','Não embarcaram','Entregas previstas'],
  billing:['Rotas nos filtros','Receita prevista','Custo previsto','Margem estimada','Fretes pendentes','Fretes quitados'],
@@ -242,6 +242,32 @@ async function loadOperationalSummary(){
 $('ops-filter').onclick=()=>loadOperationalSummary().catch(e=>message(e.message,true));
 $('ops-refresh').onclick=()=>loadOperationalSummary().catch(e=>message(e.message,true));
 
+// V13.50: total de ocorrencias por plano unico nos filtros do SAC.
+// Consultas limitadas a quatro concorrentes e protegidas contra respostas antigas.
+let sacOccurrenceQueryVersion=0;
+async function updateSACOccurrenceKpi(filtered){
+ const version=++sacOccurrenceQueryVersion;
+ const plans=[...new Set(filtered.map(r=>String(r.plan_number||'').trim()).filter(Boolean))];
+ const unique=new Set();let fallback=0, cursor=0, failed=false;
+ const worker=async()=>{
+  while(cursor<plans.length){
+   const plan=plans[cursor++];
+   try{
+    const result=await rpc('pcd_v9_list_occurrences',{p_plan:plan});
+    if(!Array.isArray(result)){failed=true;continue;}
+    for(const item of result){
+     const id=item.id??item.occurrence_id;
+     if(id!=null)unique.add(String(id));else fallback++;
+    }
+   }catch(e){failed=true;}
+  }
+ };
+ await Promise.all(Array.from({length:Math.min(4,plans.length)},()=>worker()));
+ if(version!==sacOccurrenceQueryVersion||tab!=='sac')return;
+ const value=failed?'—':unique.size+fallback;
+ const previous=topKpiCache.get('sac')||[];
+ if(previous.length===6){previous[5]=value==='—'?'—':topNum(value);topKpiUpdate('sac',previous);}
+}
 async function loadRoutes(which){
  const prefix=which==='sac'?'sac':'route';
  const search=$(prefix+'-search').value.trim();
@@ -263,8 +289,9 @@ async function loadRoutes(which){
   const filtered=all.filter(r=>(!routeDate||String(r.route_date||'').slice(0,10)===routeDate)&&(!requestDate||String(r.request_date||'').slice(0,10)===requestDate)&&(!profileFilter||norm(r.vehicle_profile)===norm(profileFilter))&&(!selectedStatuses.length||selectedStatuses.includes(routeDisplayStatus(r)))&&(!driver||norm(r.driver_name).includes(driver)));
   totals.sac=filtered.length;
   const countStatus=name=>filtered.filter(r=>routeDisplayStatus(r)===name).length;
-  const sacCards=[['Rotas acompanhadas',filtered.length],['Em rota',countStatus('EM ROTA')],['Concluídas',countStatus('CONCLUÍDO')],['A emplacar',countStatus('EMPLACAR')],['Não embarcaram',countStatus('NÃO EMBARCOU')],['Entregas previstas',filtered.reduce((n,r)=>n+(Number(r.delivery_count)||0),0)]];
-  topKpiUpdate('sac',sacCards.map(x=>topNum(x[1])));
+  const sacCards=[['Rotas acompanhadas',filtered.length],['Em rota',countStatus('EM ROTA')],['Concluídas',countStatus('CONCLUÍDO')],['Não embarcaram',countStatus('NÃO EMBARCOU')],['Entregas previstas',filtered.reduce((n,r)=>n+(Number(r.delivery_count)||0),0)],['Ocorrências','—']];
+  topKpiUpdate('sac',sacCards.map(x=>x[0]==='Ocorrências'?'—':topNum(x[1])));
+  void updateSACOccurrenceKpi(filtered);
   const sacSummary=$('sac-summary');
   if(sacSummary)sacSummary.innerHTML=sacCards.map(([label,value])=>`<div class="v13-card"><small>${esc(label)}</small><strong>${Number(value).toLocaleString('pt-BR')}</strong></div>`).join('');
   a={total:filtered.length};data=filtered.slice(pages.sac*50,(pages.sac+1)*50);
