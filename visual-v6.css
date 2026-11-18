@@ -464,3 +464,14 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 
 /* V13.44 Performance GreenMile */
 .gm-import-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0 12px}.gm-performance-btn{white-space:nowrap;border:1px solid #d4e3e8;background:#f5fafb;color:#145466;border-radius:7px;padding:5px 7px;font:inherit;font-size:12px;cursor:pointer}.gm-performance-btn[data-source="manual"]{border-color:#d8b66d;background:#fff9e9;color:#835900}.gm-performance-btn:hover{filter:brightness(.97)}
+
+/* V13.45 — GreenMile: ações lado a lado e indicador compacto por avanço */
+.gm-sac-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.gm-import-bar{margin:3px 0 6px;gap:4px}
+.gm-performance-indicator{display:inline-flex;align-items:center;justify-content:center;min-width:35px;min-height:26px;padding:3px 8px;border-radius:7px;font-size:12px;font-weight:600;line-height:1.15;border:1px solid transparent;cursor:pointer;white-space:nowrap}
+.gm-performance-indicator[data-level="low"]{background:#fee2e2;color:#991b1b;border-color:#fecaca}
+.gm-performance-indicator[data-level="mid"]{background:#fef3c7;color:#92400e;border-color:#fde68a}
+.gm-performance-indicator[data-level="high"]{background:#dcfce7;color:#166534;border-color:#bbf7d0}
+.gm-performance-indicator[data-level="none"]{background:#f1f5f9;color:#64748b;border-color:#e2e8f0}
+.gm-performance-indicator[data-source="manual"]{outline:1px dashed currentColor;outline-offset:1px}
+#sac-table th:nth-child(7),#sac-table td:nth-child(7){min-width:72px;text-align:center}

@@ -449,7 +449,12 @@ async function loadRoutes(which){
     const value=manual!==null&&manual!==undefined?manual:auto;
     const total=Number(r.delivery_count)||0;
     const btn=document.createElement('button');btn.type='button';btn.className='gm-performance-btn';
-    btn.textContent=value===null||value===undefined?'— / '+total:String(value)+' / '+total+(total?' · '+Math.round(Number(value)/total*100)+'%':'');
+    const ratio=value===null||value===undefined||total<=0?null:Math.max(0,Math.min(1,Number(value)/total));
+    btn.classList.add('gm-performance-indicator');
+    btn.dataset.level=ratio===null?'none':ratio<0.4?'low':ratio<0.75?'mid':'high';
+    btn.textContent=value===null||value===undefined?'—':String(value);
+    btn.setAttribute('aria-label','Performance '+(value??'não informada')+' de '+total+' paradas. Clique para editar.');
+    btn.title=(manual!==null&&manual!==undefined?'Ajuste manual':'Importação GreenMile')+' · '+(ratio===null?'Sem dados':Math.round(ratio*100)+'% das '+total+' entregas')+' · Clique para editar';
     btn.title=(manual!==null&&manual!==undefined?'Ajuste manual':'Importacao GreenMile')+' | Clique para editar';
     btn.dataset.source=manual!==null&&manual!==undefined?'manual':rec?'csv':'none';
     btn.onclick=()=>{
