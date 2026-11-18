@@ -475,3 +475,11 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 .gm-performance-indicator[data-level="none"]{background:#f1f5f9;color:#64748b;border-color:#e2e8f0}
 .gm-performance-indicator[data-source="manual"]{outline:1px dashed currentColor;outline-offset:1px}
 #sac-table th:nth-child(7),#sac-table td:nth-child(7){min-width:72px;text-align:center}
+
+/* V13.46: override especifico da regra global .data-panel button:not(.secondary) */
+#sac-table button.gm-performance-indicator{display:inline-flex!important;align-items:center;justify-content:center;min-width:32px;min-height:23px;padding:3px 8px!important;border-radius:12px!important;font-size:11px!important;font-weight:600!important;line-height:1.1;box-shadow:none!important;white-space:nowrap}
+#sac-table button.gm-performance-indicator[data-level="low"]{background:#ffe5e5!important;color:#a5232a!important;border:1px solid #f6caca!important}
+#sac-table button.gm-performance-indicator[data-level="mid"]{background:#fff1d4!important;color:#926000!important;border:1px solid #f4dfa8!important}
+#sac-table button.gm-performance-indicator[data-level="high"]{background:#e4f6eb!important;color:#14653a!important;border:1px solid #c4e9d1!important}
+#sac-table button.gm-performance-indicator[data-level="none"]{background:#f1f5f9!important;color:#64748b!important;border:1px solid #e2e8f0!important}
+#sac-table button.gm-performance-indicator[data-source="manual"]{outline:1px dashed currentColor;outline-offset:1px}

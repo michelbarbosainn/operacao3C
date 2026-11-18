@@ -455,7 +455,6 @@ async function loadRoutes(which){
     btn.textContent=value===null||value===undefined?'—':String(value);
     btn.setAttribute('aria-label','Performance '+(value??'não informada')+' de '+total+' paradas. Clique para editar.');
     btn.title=(manual!==null&&manual!==undefined?'Ajuste manual':'Importação GreenMile')+' · '+(ratio===null?'Sem dados':Math.round(ratio*100)+'% das '+total+' entregas')+' · Clique para editar';
-    btn.title=(manual!==null&&manual!==undefined?'Ajuste manual':'Importacao GreenMile')+' | Clique para editar';
     btn.dataset.source=manual!==null&&manual!==undefined?'manual':rec?'csv':'none';
     btn.onclick=()=>{
      modal('Performance GreenMile','Plano '+r.plan_number+' · '+brDate(r.route_date),
@@ -544,7 +543,7 @@ $('gm-import-file').onchange=async e=>{
   if(!records.length)throw Error('Nenhuma rota encontrada no CSV.');
   const response=await rpc('pcd_gm_v1344_import',{p_rows:records});
   $('gm-import-feedback').textContent='Importados: '+response.updated+' | Ignorados: '+response.skipped+' | Duplicados: '+response.duplicates;
-  await loadRoutes('sac');message('GreenMile importado: '+response.updated+' rotas vinculadas. Confira as divergencias.');
+  await loadRoutes('sac');message(response.updated>0?'GreenMile importado: '+response.updated+' rotas vinculadas. Confira as divergencias.':'Nenhuma rota vinculada. Confira a correspondencia de Plano + Data no SQL de diagnostico.',response.updated===0);
  }catch(err){message('Falha na importacao GreenMile: '+err.message,true);}finally{button.disabled=false;e.target.value='';}
 };
 for(const which of ['routes','sac']){const prefix=which==='sac'?'sac':'route';$(prefix+'-filter').onclick=()=>{pages[which]=0;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-prev').onclick=()=>{pages[which]--;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-next').onclick=()=>{pages[which]++;loadRoutes(which).catch(e=>message(e.message,true));};$('refresh-'+which).onclick=()=>loadRoutes(which).catch(e=>message(e.message,true));}
