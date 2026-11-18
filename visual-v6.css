@@ -416,14 +416,3 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 .recipient-inline-toggle.is-active{background:#dcfce7!important;color:#166534!important;border-color:#86efac!important}
 .recipient-inline-toggle.is-inactive{background:#fee2e2!important;color:#991b1b!important;border-color:#fecaca!important}
 .recipient-inline-toggle:disabled{opacity:.55;cursor:wait}
-
-/* V13.38 — SAC: alinhamento de filtros e indicadores */
-#panel-sac .route-status-filter details{width:100%;min-width:0;box-sizing:border-box}
-#panel-sac .route-status-filter summary{box-sizing:border-box;width:100%;min-height:36px;display:flex;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#sac-summary{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:12px 0}
-#sac-table .v1321-occ-chip{display:inline-flex!important;align-items:center;gap:3px;border-radius:5px;padding:2px 5px;border:1px solid #ddd;background:#f6f7f9;color:#234}
-#sac-table .v1321-occ-chip.v1321-occ-pending{background:#fff2dc;color:#9a5300;border-color:#f3cf90}
-#sac-table .v1321-occ-chip.v1321-occ-closed{background:#e2f5e9;color:#19633e;border-color:#b6e2c5}
-#sac-table .v1321-occ-icon svg{width:13px;height:13px;display:block}
-@media(max-width:1000px){#sac-summary{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media(max-width:600px){#sac-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
