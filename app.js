@@ -194,15 +194,29 @@ function routeComplement(r){const raw=String(r.complement??'').trim();return raw
 // V13.8: complemento completo em janela flutuante, sem ampliar a tabela.
 let complementPopup=null;
 function closeComplementPopup(){if(complementPopup){complementPopup.remove();complementPopup=null;}}
-function openComplementPopup(anchor,plan,value){
+function openComplementPopup(anchor,plan,value,routeId,section){
  closeComplementPopup();
  const pop=document.createElement('div');pop.className='v138-complement-popup';pop.setAttribute('role','dialog');pop.setAttribute('aria-label','Complemento completo do plano '+plan);
+ pop.dataset.routeId=String(routeId);pop.dataset.section=section;pop.dataset.rawValue=value==='—'?'':value;
  const heading=document.createElement('div');heading.className='v138-complement-heading';heading.textContent='Complemento · Plano '+(plan||'—');
  const body=document.createElement('div');body.className='v138-complement-body';body.textContent=value;
  const actions=document.createElement('div');actions.className='v138-complement-actions';
  const copy=document.createElement('button');copy.type='button';copy.textContent='Copiar';copy.onclick=async()=>{try{await navigator.clipboard.writeText(value);message('Complemento copiado.');}catch(e){const ta=document.createElement('textarea');ta.value=value;document.body.append(ta);ta.select();const ok=document.execCommand('copy');ta.remove();message(ok?'Complemento copiado.':'Não foi possível copiar.',!ok);}closeComplementPopup();};
+ const edit=document.createElement('button');edit.type='button';edit.textContent='Editar / apagar';edit.onclick=()=>{
+  const routeId=Number(pop.dataset.routeId);
+  const current=pop.dataset.rawValue||'';
+  const textArea=document.createElement('textarea');textArea.className='v1352-complement-editor';textArea.rows=4;textArea.maxLength=2000;textArea.value=current;
+  body.replaceChildren(textArea);textArea.focus();
+  edit.remove();copy.remove();
+  const save=document.createElement('button');save.type='button';save.textContent='Salvar';
+  save.onclick=async()=>{save.disabled=true;try{
+    await rpc('pcd_v1352_set_complement',{p_route_id:routeId,p_complement:textArea.value});
+    closeComplementPopup();await loadRoutes(pop.dataset.section||'routes');message('Complemento atualizado.');
+  }catch(e){message('Não foi possível salvar complemento: '+e.message,true);save.disabled=false;}};
+  actions.prepend(save);
+ };
  const close=document.createElement('button');close.type='button';close.textContent='Fechar';close.onclick=closeComplementPopup;
- actions.append(copy,close);pop.append(heading,body,actions);document.body.append(pop);complementPopup=pop;
+ actions.append(copy,edit,close);pop.append(heading,body,actions);document.body.append(pop);complementPopup=pop;
  const rect=anchor.getBoundingClientRect();const w=pop.offsetWidth,h=pop.offsetHeight;
  pop.style.left=Math.max(8,Math.min(rect.left,window.innerWidth-w-8))+'px';
  pop.style.top=(rect.bottom+8+h<=window.innerHeight?rect.bottom+8:Math.max(8,rect.top-h-8))+'px';
@@ -341,9 +355,16 @@ async function loadRoutes(which){
     const btn=document.createElement('button');btn.type='button';btn.className='v138-complement-open';btn.title='Clique para visualizar o complemento completo';btn.setAttribute('aria-label','Ver complemento completo do plano '+r.plan_number);
     const label=document.createElement('span');label.className='v138-complement-text';label.textContent=full;
     const expand=document.createElement('span');expand.className='v138-complement-expand';expand.textContent='↗';expand.setAttribute('aria-hidden','true');expand.hidden=true;
-    btn.append(label,expand);btn.onclick=()=>openComplementPopup(btn,r.plan_number,full);complementCell.append(btn);
+    btn.append(label,expand);btn.onclick=()=>openComplementPopup(btn,r.plan_number,full,r.id,which);complementCell.append(btn);
     requestAnimationFrame(()=>{if(!btn.isConnected)return;expand.hidden=label.scrollWidth<=label.clientWidth+1;});
-   }else complementCell.textContent='—';
+   }else{const btn=document.createElement('button');btn.type='button';btn.className='v138-complement-open';btn.textContent='＋';btn.title='Adicionar complemento';btn.onclick=()=>openComplementPopup(btn,r.plan_number,'',r.id,which);complementCell.append(btn);}
+  }
+  if(which==='sac'){
+   const complementCell=tr.children[1],full=routeComplement(r);
+   complementCell.textContent='';
+   const btn=document.createElement('button');btn.type='button';btn.className='v138-complement-open';btn.textContent=full==='—'?'＋':full;btn.title='Visualizar, editar ou apagar complemento';
+   btn.onclick=()=>openComplementPopup(btn,r.plan_number,full==='—'?'':full,r.id,which);
+   complementCell.append(btn);
   }
   if(which==='sac'){const plan=document.createElement('button');plan.className='plan-link';plan.textContent=r.plan_number;plan.onclick=()=>openPlanInvoices(r);tr.children[0].textContent='';tr.children[0].append(plan);}
   const dateCell=tr.children[which==='routes'?2:3],dateButton=document.createElement('button');dateButton.className='driver-inline';dateButton.textContent=brDate(r.route_date);dateButton.title='Reprogramar com justificativa';dateButton.disabled=!r.is_active;dateButton.onclick=()=>openReschedule(r);dateCell.textContent='';dateCell.append(dateButton);

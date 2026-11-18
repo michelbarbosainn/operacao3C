@@ -498,3 +498,7 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 #panel-sac .gm-import-feedback{display:block;max-width:100%;font-size:11px;line-height:1.35;overflow-wrap:anywhere}
 #panel-sac .gm-import-feedback-row:has(.gm-import-feedback:empty){display:none}
 @media(max-width:650px){#panel-sac .gm-sac-actions{flex-wrap:wrap}}
+/* V13.52 — edição de complemento em popover compacto */
+.v1352-complement-editor{width:100%;min-height:85px;box-sizing:border-box;padding:8px;border:1px solid #b8ccdc;border-radius:6px;font:inherit;resize:vertical}
+#sac-table .v138-complement-open{border:0;background:transparent;color:inherit;font:inherit;padding:2px 0;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;text-align:left}
+#sac-table .v138-complement-open:hover{text-decoration:underline}
