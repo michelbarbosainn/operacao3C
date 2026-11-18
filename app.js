@@ -543,7 +543,8 @@ $('gm-import-file').onchange=async e=>{
    const start=get('Início da Rota / Data');const sm=start.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
    const execDate=sm?`${sm[3]}-${sm[2]}-${sm[1]}`:null;
    const ended=get('Rota Finalizada Data');
-   return {plan_number:plan,gm_route_date:`${m[3]}-${m[2]}-${m[1]}`,execution_date:execDate,auto_completed:count,gm_finished:!!ended&&ended!=='-',source_line:i+2};
+   const started=!!sm;
+   return {plan_number:plan,gm_route_date:`${m[3]}-${m[2]}-${m[1]}`,execution_date:execDate,auto_completed:count,gm_finished:!!ended&&ended!=='-',gm_started:started,source_line:i+2};
   }).filter(Boolean);
   if(!parsed.length)throw Error('Nenhuma rota encontrada no CSV.');
   const groups=new Map();
@@ -555,10 +556,10 @@ $('gm-import-file').onchange=async e=>{
    // Mesmo plano e mesma execucao: contagens diferentes sao inconclusivas.
    const counts=new Set(rows.map(x=>x.auto_completed));
    if(counts.size>1){conflicted+=rows.length;continue;}
-   records.push({...rows[0],gm_finished:rows.some(x=>x.gm_finished)});
+   records.push({...rows[0],gm_finished:rows.some(x=>x.gm_finished),gm_started:rows.some(x=>x.gm_started)});
   }
   const response=await rpc('pcd_gm_v1344_import',{p_rows:records});
-  $('gm-import-feedback').textContent='Vinculados: '+response.updated+' | Ignorados: '+response.skipped+' | Ambíguos: '+response.ambiguous+' | Sem embarque: '+response.no_board+' | Repetidos: '+response.duplicates+' | Conflitos CSV: '+conflicted;
+  $('gm-import-feedback').textContent='Vinculados: '+response.updated+' | Ignorados: '+response.skipped+' | Ambíguos: '+response.ambiguous+' | Sem embarque: '+response.no_board+' | Repetidos: '+response.duplicates+' | Conflitos CSV: '+conflicted+' | GM atualizados: '+(response.gm_updated??0)+' | GM preservados: '+(response.gm_preserved??0);
   await loadRoutes('sac');message(response.updated>0?'GreenMile importado: '+response.updated+' rotas vinculadas. Confira as divergencias.':'Nenhuma rota vinculada. Confira o resumo de divergências da importação.',response.updated===0);
  }catch(err){message('Falha na importacao GreenMile: '+err.message,true);}finally{button.disabled=false;e.target.value='';}
 };
