@@ -502,3 +502,8 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 .v1352-complement-editor{width:100%;min-height:85px;box-sizing:border-box;padding:8px;border:1px solid #b8ccdc;border-radius:6px;font:inherit;resize:vertical}
 #sac-table .v138-complement-open{border:0;background:transparent;color:inherit;font:inherit;padding:2px 0;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;text-align:left}
 #sac-table .v138-complement-open:hover{text-decoration:underline}
+
+/* V13.55 — edição financeira explícita */
+#billing-table .billing-comp-inline .billing-comp-save,#billing-table .billing-comp-inline .billing-comp-cancel{font-size:10px;padding:5px 7px;min-height:27px;border-radius:5px;white-space:nowrap}
+#billing-table .billing-comp-inline .billing-comp-save{background:#e7f2ff;color:#164c7d;border:1px solid #bfd8f1}
+#billing-table .billing-comp-inline .billing-comp-cancel{background:#f5f6f8;color:#546478;border:1px solid #dce2e8}

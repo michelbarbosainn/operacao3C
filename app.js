@@ -1558,23 +1558,17 @@ async function loadBilling(){requireFinanceOwner();
    tr.children[25].textContent=billingMoney(margin);tr.children[26].textContent=margin==null||!meta.revenue?'Pendente':(margin/meta.revenue*100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
    billingStyleMargin(tr,margin,meta.revenue);
   };
-  // V13.54: edição financeira textual, sem setas nativas ou commit por tecla.
-  // Apenas Enter ou saída do campo confirmam; Esc cancela sem recalcular.
-  const initialAmount=amount.value;
-  let cancelEdit=false;
-  amount.addEventListener('focus',()=>{cancelEdit=false;amount.select();});
-  amount.addEventListener('change',()=>{if(!cancelEdit)update();});
-  amount.addEventListener('keydown',e=>{
-    if(e.key==='Enter'){e.preventDefault();amount.blur();}
-    if(e.key==='Escape'){
-      e.preventDefault();cancelEdit=true;
-      const saved=Number((billingComplements.get(meta.id)||{amount:0}).amount||0);
-      amount.value=saved>0?saved.toFixed(2).replace('.',','):'';
-      amount.blur();
-    }
-  });
+  // V13.55: valor só é aplicado após confirmação explícita.
+  // Não gravar em change/blur: evita commits parciais e confusão com valores calculados.
+  const saveComp=document.createElement('button');saveComp.type='button';saveComp.className='billing-comp-save';saveComp.textContent='Salvar';saveComp.title='Confirmar valor do complemento';
+  const cancelComp=document.createElement('button');cancelComp.type='button';cancelComp.className='billing-comp-cancel';cancelComp.textContent='Cancelar';
+  const restoreComp=()=>{const saved=Number((billingComplements.get(meta.id)||{amount:0}).amount||0);amount.value=saved>0?saved.toFixed(2).replace('.',','):'';amount.setCustomValidity('');};
+  const commitComp=()=>{update();if(!amount.validationMessage){const saved=Number((billingComplements.get(meta.id)||{amount:0}).amount||0);amount.value=saved>0?saved.toFixed(2).replace('.',','):'';}};
+  saveComp.addEventListener('click',commitComp);
+  cancelComp.addEventListener('click',restoreComp);
+  amount.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();commitComp();}if(e.key==='Escape'){e.preventDefault();restoreComp();}});
   reason.addEventListener('change',update);
-  tr.children[13].textContent='';const compInline=document.createElement('div');compInline.className='billing-comp-inline';compInline.append(amount,reason);tr.children[13].append(compInline);
+  tr.children[13].textContent='';const compInline=document.createElement('div');compInline.className='billing-comp-inline';compInline.append(amount,reason,saveComp,cancelComp);tr.children[13].append(compInline);
   if(meta.city){const cell=tr.children[3];cell.textContent='';const cityButton=document.createElement('button');cityButton.type='button';cityButton.className='billing-city-link';cityButton.textContent=meta.city;cityButton.title='Consultar cidades, distâncias e faixas do plano';cityButton.onclick=()=>{document.querySelector('#programming-city-summary').textContent='';billingCityDetails(meta.plan,meta.details);};cell.append(cityButton);}
   if(meta.toll==null&&meta.city){const td=tr.children[12];td.textContent='';const btn=document.createElement('button');btn.type='button';btn.className='billing-register-toll';btn.textContent='+ Cadastrar pedágio';btn.onclick=()=>billingOpenToll(meta.city,meta.plan);td.append(btn);}
   const initialMargin=meta.revenue==null||meta.freight==null||meta.toll==null||meta.totalTaxes==null||meta.aver==null||meta.adminCost==null||meta.operatingCost==null||meta.cteCost==null?null:meta.revenue-meta.freight-meta.toll-Number(c.amount||0)-meta.totalTaxes-meta.aver-meta.adminCost-meta.operatingCost-meta.cteCost;
