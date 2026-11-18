@@ -437,6 +437,17 @@ async function loadRoutes(which){
    gmCell.textContent='';gmCell.append(gm);
   }
  });
+ // V13.43: reorganizar apenas a apresentacao SAC DEPOIS de configurar
+ // os controles, preservando os indices originais usados pelos eventos.
+ if(which==='sac'){
+  const order=[0,1,6,7,8,9,10,11,12,13,14,2,3,4,5];
+  const reorder=tr=>{
+   const cells=Array.from(tr.children);
+   if(cells.length!==order.length)return;
+   order.forEach(index=>tr.appendChild(cells[index]));
+  };
+  target.querySelectorAll('thead tr,tbody tr').forEach(reorder);
+ }
  {
   // Indicadores carregados somente para os planos da pagina visivel; limite de concorrencia.
   const jobs=data.map((r,i)=>({r,tr:target.querySelectorAll('tbody tr')[i]}));
