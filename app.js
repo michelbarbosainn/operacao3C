@@ -446,7 +446,7 @@ async function loadRoutes(which){
    target.querySelectorAll('tbody tr').forEach((tr,i)=>{
     const r=data[i], cell=tr.children[15], rec=gmById.get(Number(r.id));
     const auto=rec?.auto_completed,manual=rec?.manual_completed;
-    const value=manual!==null&&manual!==undefined?manual:auto;
+    const value=norm(r.route_status)==='NAOEMBARCOU'?0:(manual!==null&&manual!==undefined?manual:auto);
     const total=Number(r.delivery_count)||0;
     const btn=document.createElement('button');btn.type='button';btn.className='gm-performance-btn';
     const ratio=value===null||value===undefined||total<=0?null:Math.max(0,Math.min(1,Number(value)/total));
@@ -455,7 +455,8 @@ async function loadRoutes(which){
     btn.textContent=value===null||value===undefined?'—':String(value);
     btn.setAttribute('aria-label','Performance '+(value??'não informada')+' de '+total+' paradas. Clique para editar.');
     btn.title=(manual!==null&&manual!==undefined?'Ajuste manual':'Importação GreenMile')+' · '+(ratio===null?'Sem dados':Math.round(ratio*100)+'% das '+total+' entregas')+' · Clique para editar';
-    btn.dataset.source=manual!==null&&manual!==undefined?'manual':rec?'csv':'none';
+    btn.dataset.source=norm(r.route_status)==='NAOEMBARCOU'?'no-board':manual!==null&&manual!==undefined?'manual':rec?'csv':'none';
+    if(norm(r.route_status)==='NAOEMBARCOU'){btn.disabled=true;btn.title='NÃO EMBARCOU · Performance 0';}
     btn.onclick=()=>{
      modal('Performance GreenMile','Plano '+r.plan_number+' · '+brDate(r.route_date),
       '<p>Paradas realizadas conforme Resumo da Rota: <b>'+esc(auto??'Nao importado')+'</b></p>'+ 
@@ -531,19 +532,34 @@ $('gm-import-file').onchange=async e=>{
   const headers=grid.shift().map(x=>norm(x));
   const idx=name=>headers.indexOf(norm(name));
   for(const key of ['Chave','Data da rota','Realizado Realizadas','Rota Finalizada Data'])if(idx(key)<0)throw Error('Coluna ausente: '+key);
-  const records=grid.map((row,i)=>{
+  // V13.47: a data GreenMile e a data de faturamento/criacao, nao a data TMS.
+  // Agrupar por plano + inicio REAL da execucao, nunca somar linhas repetidas.
+  const parsed=grid.map((row,i)=>{
    const get=k=>String(row[idx(k)]??'').trim();const plan=get('Chave');if(!plan)return null;
    const raw=get('Realizado Realizadas');const count=Number(raw.replace(',','.'));
    if(!Number.isInteger(count)||count<0)throw Error('Linha '+(i+2)+': quantidade realizada invalida.');
    const date=get('Data da rota');const m=date.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
    if(!m)throw Error('Linha '+(i+2)+': data invalida: '+date);
+   const start=get('Início da Rota / Data');const sm=start.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+   const execDate=sm?`${sm[3]}-${sm[2]}-${sm[1]}`:null;
    const ended=get('Rota Finalizada Data');
-   return {plan_number:plan,gm_route_date:`${m[3]}-${m[2]}-${m[1]}`,auto_completed:count,gm_finished:!!ended&&ended!=='-',source_line:i+2};
+   return {plan_number:plan,gm_route_date:`${m[3]}-${m[2]}-${m[1]}`,execution_date:execDate,auto_completed:count,gm_finished:!!ended&&ended!=='-',source_line:i+2};
   }).filter(Boolean);
-  if(!records.length)throw Error('Nenhuma rota encontrada no CSV.');
+  if(!parsed.length)throw Error('Nenhuma rota encontrada no CSV.');
+  const groups=new Map();
+  for(const rec of parsed){const key=rec.plan_number+'|'+(rec.execution_date||'SEM_EXECUCAO');
+   if(!groups.has(key))groups.set(key,[]);groups.get(key).push(rec);
+  }
+  const records=[];let conflicted=0;
+  for(const rows of groups.values()){
+   // Mesmo plano e mesma execucao: contagens diferentes sao inconclusivas.
+   const counts=new Set(rows.map(x=>x.auto_completed));
+   if(counts.size>1){conflicted+=rows.length;continue;}
+   records.push({...rows[0],gm_finished:rows.some(x=>x.gm_finished)});
+  }
   const response=await rpc('pcd_gm_v1344_import',{p_rows:records});
-  $('gm-import-feedback').textContent='Importados: '+response.updated+' | Ignorados: '+response.skipped+' | Duplicados: '+response.duplicates;
-  await loadRoutes('sac');message(response.updated>0?'GreenMile importado: '+response.updated+' rotas vinculadas. Confira as divergencias.':'Nenhuma rota vinculada. Confira a correspondencia de Plano + Data no SQL de diagnostico.',response.updated===0);
+  $('gm-import-feedback').textContent='Vinculados: '+response.updated+' | Ignorados: '+response.skipped+' | Ambíguos: '+response.ambiguous+' | Sem embarque: '+response.no_board+' | Repetidos: '+response.duplicates+' | Conflitos CSV: '+conflicted;
+  await loadRoutes('sac');message(response.updated>0?'GreenMile importado: '+response.updated+' rotas vinculadas. Confira as divergencias.':'Nenhuma rota vinculada. Confira o resumo de divergências da importação.',response.updated===0);
  }catch(err){message('Falha na importacao GreenMile: '+err.message,true);}finally{button.disabled=false;e.target.value='';}
 };
 for(const which of ['routes','sac']){const prefix=which==='sac'?'sac':'route';$(prefix+'-filter').onclick=()=>{pages[which]=0;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-prev').onclick=()=>{pages[which]--;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-next').onclick=()=>{pages[which]++;loadRoutes(which).catch(e=>message(e.message,true));};$('refresh-'+which).onclick=()=>loadRoutes(which).catch(e=>message(e.message,true));}
