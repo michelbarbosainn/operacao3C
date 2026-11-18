@@ -1550,21 +1550,28 @@ async function loadBilling(){requireFinanceOwner();
  for(let i=0;i<filteredResult.length;i++){filteredResult[i][15]=billingMoney(payRowState(filteredSummary[i]).paid);}
  $('billing-table').innerHTML=table(['Plano','Data rota','Qtd. cidades','Cidade determinante','Faixa','Peso','Valor mercadoria','Qtd. entregas','Motorista','Placa','Perfil embarcado','Frete a pagar','Pedágio','Complemento','Total adiantamento','Adiantamento pago','Total a pagar','Receita bruta','ICMS','Demais tributos (provisão)','Total impostos','Averbação','Desp. operacionais','Desp. administrativas','Emissão CT-e','Margem R$ (estimada)','Margem % (estimada)'],visibleResult);
  $('billing-table').querySelectorAll('tbody tr').forEach((tr,i)=>{const meta=visibleMetadata[i],c=billingComplements.get(meta.id)||{amount:0,reason:''};
-  const amount=document.createElement('input');amount.type='number';amount.min='0';amount.step='0.01';amount.className='billing-comp-input';amount.value=c.amount||'';amount.placeholder='0,00';amount.title='Complemento simulado; ainda não gravado no banco';
+  const amount=document.createElement('input');amount.type='text';amount.inputMode='decimal';amount.autocomplete='off';amount.className='billing-comp-input';amount.value=Number(c.amount)>0?Number(c.amount).toFixed(2).replace('.',','):'';amount.placeholder='0,00';amount.title='Complemento simulado; ainda não gravado no banco';
   const reason=document.createElement('select');reason.className='billing-reason-input';for(const [value,label] of [['','Selecione o motivo'],...billingReasonOptions.map(x=>[x,x])]){const option=document.createElement('option');option.value=value;option.textContent=label;reason.append(option);}reason.value=billingReasonOptions.includes(c.reason)?c.reason:'';reason.title='Motivo do complemento';reason.disabled=!(Number(c.amount)>0);
-  const update=()=>{const val=Number(amount.value);if(!Number.isFinite(val)||val<0){amount.setCustomValidity('Informe valor válido');return;}amount.setCustomValidity('');reason.disabled=val<=0;if(val<=0)reason.value='';reason.required=val>0;reason.classList.toggle('billing-reason-required',val>0&&!reason.value);billingComplements.set(meta.id,{amount:val,reason:reason.value.trim()});const sr=summaryRows.find(x=>x.id===meta.id);if(sr){sr.comp=val;sr.advance=sr.freight==null||sr.toll==null?null:(sr.freight+val)*0.5+sr.toll;sr.total=sr.freight==null||sr.toll==null?null:sr.freight+sr.toll+val;sr.margin=sr.revenue==null||sr.total==null||sr.totalTaxes==null||sr.aver==null||sr.adminCost==null||sr.operatingCost==null||sr.cteCost==null?null:sr.revenue-sr.total-sr.totalTaxes-sr.aver-sr.adminCost-sr.operatingCost-sr.cteCost;billingSummaryRender(filteredSummary);}tr.children[14].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney((meta.freight+val)*0.5+meta.toll);tr.children[16].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney(meta.freight+meta.toll+val);
+  const update=()=>{const raw=amount.value.trim();const normalized=raw.replace(/\s/g,'').replace(/^R\$/i,'').replace(/\./g,'').replace(',','.');const val=raw===''?0:Number(normalized);if(!Number.isFinite(val)||val<0||!/^\d*(?:[.,]\d{0,2})?$/.test(raw.replace(/\s/g,'').replace(/^R\$/i,''))){amount.setCustomValidity('Informe valor válido (ex.: 540,00)');amount.reportValidity();return;}amount.setCustomValidity('');reason.disabled=val<=0;if(val<=0)reason.value='';reason.required=val>0;reason.classList.toggle('billing-reason-required',val>0&&!reason.value);billingComplements.set(meta.id,{amount:val,reason:reason.value.trim()});const sr=summaryRows.find(x=>x.id===meta.id);if(sr){sr.comp=val;sr.advance=sr.freight==null||sr.toll==null?null:(sr.freight+val)*0.5+sr.toll;sr.total=sr.freight==null||sr.toll==null?null:sr.freight+sr.toll+val;sr.margin=sr.revenue==null||sr.total==null||sr.totalTaxes==null||sr.aver==null||sr.adminCost==null||sr.operatingCost==null||sr.cteCost==null?null:sr.revenue-sr.total-sr.totalTaxes-sr.aver-sr.adminCost-sr.operatingCost-sr.cteCost;billingSummaryRender(filteredSummary);}tr.children[14].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney((meta.freight+val)*0.5+meta.toll);tr.children[16].textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney(meta.freight+meta.toll+val);
    const totalCost=meta.freight==null||meta.toll==null?null:meta.freight+meta.toll+val;
    const margin=meta.revenue==null||totalCost==null||meta.totalTaxes==null||meta.aver==null||meta.adminCost==null||meta.operatingCost==null||meta.cteCost==null?null:meta.revenue-totalCost-meta.totalTaxes-meta.aver-meta.adminCost-meta.operatingCost-meta.cteCost;
    tr.children[25].textContent=billingMoney(margin);tr.children[26].textContent=margin==null||!meta.revenue?'Pendente':(margin/meta.revenue*100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
    billingStyleMargin(tr,margin,meta.revenue);
   };
-  // V13.53: não recalcular nem reconstruir a tabela durante a digitação.
-  // O valor é confirmado ao sair do campo (change) ou pressionar Enter.
+  // V13.54: edição financeira textual, sem setas nativas ou commit por tecla.
+  // Apenas Enter ou saída do campo confirmam; Esc cancela sem recalcular.
   const initialAmount=amount.value;
-  amount.addEventListener('change',update);
+  let cancelEdit=false;
+  amount.addEventListener('focus',()=>{cancelEdit=false;amount.select();});
+  amount.addEventListener('change',()=>{if(!cancelEdit)update();});
   amount.addEventListener('keydown',e=>{
     if(e.key==='Enter'){e.preventDefault();amount.blur();}
-    if(e.key==='Escape'){e.preventDefault();amount.value=String((billingComplements.get(meta.id)||{amount:Number(initialAmount)||0}).amount||'');amount.blur();}
+    if(e.key==='Escape'){
+      e.preventDefault();cancelEdit=true;
+      const saved=Number((billingComplements.get(meta.id)||{amount:0}).amount||0);
+      amount.value=saved>0?saved.toFixed(2).replace('.',','):'';
+      amount.blur();
+    }
   });
   reason.addEventListener('change',update);
   tr.children[13].textContent='';const compInline=document.createElement('div');compInline.className='billing-comp-inline';compInline.append(amount,reason);tr.children[13].append(compInline);
