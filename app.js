@@ -336,8 +336,8 @@ async function loadRoutes(which){
    };
    statusCell.textContent='';statusCell.append(select);
   }
-  if(which==='routes'){
-   const cityCell=tr.children[5];
+  if(which==='routes'||which==='sac'){
+   const cityCell=tr.children[which==='routes'?5:6];
    const cityLink=document.createElement('button');
    cityLink.type='button';cityLink.className='billing-city-link route-city-link';
    cityLink.textContent=r.city||'Consultar cidades';
@@ -922,24 +922,16 @@ async function openProgrammingCities(r){
   const routeCity=billingNorm(r.city);
   const cities=noteCities.length?noteCities:(routeCity?[routeCity]:[]);
   if(!cities.length){summary.textContent='Nenhuma cidade identificada para este plano.';return;}
-  // Buscar a tabela por páginas, sem presumir que os nomes estejam acentuados igualmente.
-  const rates=[];let offset=0;
-  while(true){
-   const {data,error}=await db.from('pcd_billing_city_rates')
-    .select('city,band,vehicle_profile,distance_km').range(offset,offset+999);
-   if(error)throw error;
-   rates.push(...(data||[]));
-   if(!data||data.length<1000)break;
-   offset+=1000;
-   if(offset>50000)throw Error('Tabela de cidades muito extensa para consulta completa.');
-  }
+  // RPC operacional: retorna somente cidade, faixa e km; não expõe valores financeiros ao SAC.
+  const rates=await rpc('pcd_v1340_route_city_distances',{});
+  if(!Array.isArray(rates))throw Error('Consulta operacional de distâncias indisponível.');
   const profile=billingNorm(r.vehicle_profile);
   const details=cities.map(city=>{
    const matching=rates.filter(x=>billingNorm(x.city)===city&&billingNorm(x.vehicle_profile)===profile)
-    .sort((a,b)=>Number(b.band||0)-Number(a.band||0)||Number(b.distance_km||0)-Number(a.distance_km||0));
+    .sort((a,b)=>Number(b.distance_km||0)-Number(a.distance_km||0)||Number(b.band||0)-Number(a.band||0));
    const best=matching[0];
    return {city,band:best?.band??null,distance:best?.distance_km??null};
-  }).sort((a,b)=>Number(b.band||0)-Number(a.band||0)||Number(b.distance||0)-Number(a.distance||0));
+  }).sort((a,b)=>Number(b.distance||0)-Number(a.distance||0)||Number(b.band||0)-Number(a.band||0));
   billingCityDetails(plan,details);
   const complete=details.every(x=>x.band!=null&&x.distance!=null);
   const decisive=complete?details[0]:null;
@@ -948,7 +940,7 @@ async function openProgrammingCities(r){
    const heading=document.createElement('div');heading.className='programming-city-label';heading.textContent='CIDADE DETERMINANTE DO FRETE';
    const name=document.createElement('div');name.className='programming-city-name';name.textContent=decisive.city;
    const meta=document.createElement('div');meta.className='programming-city-meta';meta.textContent='Faixa '+decisive.band+' · '+Number(decisive.distance).toLocaleString('pt-BR')+' km';
-   const explanation=document.createElement('p');explanation.textContent='Maior faixa contratual; em caso de empate, maior distância. Esta cidade determina a faixa utilizada na formação do preço da rota.';
+   const explanation=document.createElement('p');explanation.textContent='Maior distância cadastrada; em caso de empate, maior faixa. Referência operacional da rota. Confira as regras contratuais no Faturamento.';
    summary.append(heading,name,meta,explanation);
   }else{
    summary.textContent='Cidade determinante não confirmada: existem cidades sem faixa ou distância cadastrada para o perfil '+(r.vehicle_profile||'—')+'. Confira os dados antes de utilizar a informação para precificação.';
@@ -1330,7 +1322,7 @@ async function loadBilling(){requireFinanceOwner();
   const prof=embarkedProfile||contractedProfile;
   const matched=cityList.flatMap(city=>cityRates.filter(x=>billingNorm(x.city)===city&&billingNorm(x.vehicle_profile)===contractedProfile).map(x=>({...x,routeCity:city})));
   const payRates=cityList.flatMap(city=>cityRates.filter(x=>billingNorm(x.city)===city&&billingNorm(x.vehicle_profile)===prof).map(x=>({...x,routeCity:city}))); 
-  matched.sort((x,y)=>Number(y.band)-Number(x.band)||Number(y.distance_km||0)-Number(x.distance_km||0));const decisive=matched[0];
+  matched.sort((x,y)=>Number(y.distance_km||0)-Number(x.distance_km||0)||Number(y.band)-Number(x.band));const decisive=matched[0];
   const dateKey=r.route_date||r.loading_on||'';
   const payableRate=decisive?payRates.filter(x=>Number(x.band)===Number(decisive.band)).sort((a,b)=>Number(b.distance_km||0)-Number(a.distance_km||0))[0]:null;
   const override=decisive?exceptions.filter(x=>billingNorm(x.vehicle_profile)===prof&&Number(x.band)===Number(decisive.band)&&(!dateKey||x.effective_from<=dateKey)&&(!x.effective_until||x.effective_until>=dateKey)).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)))[0]:null;
@@ -1342,7 +1334,7 @@ async function loadBilling(){requireFinanceOwner();
   if(continuation?.responsibility==='TRANSPORTADORA')revenue=0;
   const id=String(r.id||plan+'|'+dateKey),comp=billingComplements.get(id)||{amount:0,reason:''};
   const note=!noteCities.length?'Sem notas vinculadas — cidade operacional':matched.length!==cityList.length?'Cidade/perfil sem tabela':!decisive?'Cidade/perfil sem tabela':cityTolls.length>1&&new Set(cityTolls.map(x=>Number(x.amount))).size>1?'Pedágios divergentes':!cityTolls.length?'Pedágio sem referência':override?'Exceção fornecedor':'Tabela padrão';
-  const details=cityList.map(city=>{const candidates=matched.filter(x=>x.routeCity===city).sort((a,b)=>Number(b.band)-Number(a.band)||Number(b.distance_km||0)-Number(a.distance_km||0));return {city,band:candidates[0]?.band??null,distance:candidates[0]?.distance_km??null};}).sort((a,b)=>Number(b.band||0)-Number(a.band||0)||Number(b.distance||0)-Number(a.distance||0));
+  const details=cityList.map(city=>{const candidates=matched.filter(x=>x.routeCity===city).sort((a,b)=>Number(b.distance_km||0)-Number(a.distance_km||0)||Number(b.band)-Number(a.band));return {city,band:candidates[0]?.band??null,distance:candidates[0]?.distance_km??null};}).sort((a,b)=>Number(b.distance||0)-Number(a.distance||0)||Number(b.band||0)-Number(a.band||0));
   const weight=group.reduce((sum,x)=>sum+(Number(x.gross_weight)||0),0);
   const deliveries=group.reduce((sum,x)=>sum+(Number(x.delivery_count)||0),0);
   const icmsRate=financeRate('ICMS',dateKey);
