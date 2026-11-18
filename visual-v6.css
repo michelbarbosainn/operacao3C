@@ -490,3 +490,11 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 .gm-import-feedback{display:block;font-size:11px;line-height:1.35;overflow-wrap:anywhere;max-width:100%}
 .gm-import-feedback:empty{display:none}
 @media(max-width:720px){.gm-import-action{max-width:100%}.gm-sac-actions{justify-content:flex-start}}
+
+/* V13.51: botoes imoveis; feedback em linha independente, alinhada a esquerda */
+#panel-sac .gm-sac-actions{display:flex;flex:0 0 auto;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:nowrap;white-space:nowrap}
+#panel-sac .gm-sac-actions button{flex:0 0 auto}
+#panel-sac .gm-import-feedback-row{width:100%;clear:both;text-align:left;margin:0 0 4px}
+#panel-sac .gm-import-feedback{display:block;max-width:100%;font-size:11px;line-height:1.35;overflow-wrap:anywhere}
+#panel-sac .gm-import-feedback-row:has(.gm-import-feedback:empty){display:none}
+@media(max-width:650px){#panel-sac .gm-sac-actions{flex-wrap:wrap}}
