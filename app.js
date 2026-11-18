@@ -50,8 +50,34 @@ $('login').onclick=async()=>{try{$('login').disabled=true;const {data,error}=awa
 $('google-login').onclick=async()=>{try{if(!db)throw Error('Supabase não configurado.');const {error}=await db.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname,queryParams:{hd:'innovasl.com.br',prompt:'select_account'}}});if(error)throw error;}catch(e){message('Falha ao iniciar Google: '+e.message,true);}};
 $('logout').onclick=async()=>{await db.auth.signOut();location.reload();};
 
-async function refreshMetrics(){const a=await rpc('pcd_dashboard');$('metric-routes').textContent=a.total_routes;const day=$('availability-date').value||today();drivers=await rpc('pcd_v8_drivers',{p_date:day});$('metric-drivers').textContent=drivers.length;$('metric-available').textContent=drivers.filter(d=>d.day_status==='DISPONIVEL').length;$('metric-assigned').textContent=drivers.filter(d=>d.day_status==='PROGRAMADO').length;}
-async function showTab(t){if(t==='billing'&&!financeOwner){message('Faturamento restrito ao usuário autorizado.',true);return;}if(t==='finance-params'&&$('finance-params-nav').classList.contains('hidden')){message('Acesso restrito ao administrador.',true);return;}tab=t;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','finance-params','availability','sac','occurrences','recipients','reasons','operational-summary'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='operational-summary')await loadOperationalSummary();if(t==='billing')await loadBilling();if(t==='finance-params')await loadFinanceParams();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
+
+// V13.41: indicadores no topo; dados reais da consulta ativa, sem RPC adicional.
+const topKpiCache=new Map();
+const topKpiTemplates={
+ import:['Rotas cadastradas','Motoristas cadastrados','Disponíveis na data','Programados na data','Novas importações','Falhas de importação'],
+ availability:['Motoristas cadastrados','Disponíveis','Indisponíveis','Programados','Inativos','Cadastros pendentes'],
+ routes:['Rotas ofertadas','Programadas','A emplacar','Não embarcaram','Peso total','Entregas totais'],
+ sac:['Rotas acompanhadas','Em rota','Concluídas','A emplacar','Não embarcaram','Entregas previstas'],
+ occurrences:['Ocorrências nos filtros','Abertas','Encerradas','E-mails com atenção','Em tratativa','Sem envio'],
+ 'operational-summary':['Rotas consultadas','Programadas','Em rota','Concluídas','Não embarcaram','Entregas previstas'],
+ billing:['Rotas nos filtros','Receita prevista','Custo previsto','Margem estimada','Fretes pendentes','Fretes quitados'],
+ recipients:['Destinatários exibidos','Ativos','Inativos','E-mails válidos','Com nome','Sem nome'],
+ reasons:['Motivos exibidos','Ativos','Inativos','Utilizações','Com grupo','Sem grupo'],
+ 'finance-params':['Parâmetros financeiros','Tarifas de cidades','Custos de frete','Pedágios','Parâmetros operacionais','Última atualização']
+};
+function topKpiRender(t){
+ if(t!==tab)return;
+ const names=topKpiTemplates[t]||topKpiTemplates.import;
+ const vals=topKpiCache.get(t)||[];
+ const el=$('innova-top-kpis');if(!el)return;
+ const icons=['▤','◉','✓','▣','◷','≋'];
+ el.innerHTML=names.map((name,i)=>`<div class="stat"><span class="kpi-icon" aria-hidden="true">${icons[i]}</span><span class="muted">${esc(name)}</span><strong>${esc(vals[i]??'—')}</strong></div>`).join('');
+}
+function topKpiUpdate(t,values){topKpiCache.set(t,values.map(v=>v==null?'—':String(v)));topKpiRender(t);}
+const topNum=n=>Number(n||0).toLocaleString('pt-BR');
+
+async function refreshMetrics(){const a=await rpc('pcd_dashboard');$('metric-routes').textContent=a.total_routes;const day=$('availability-date').value||today();drivers=await rpc('pcd_v8_drivers',{p_date:day});$('metric-drivers').textContent=drivers.length;$('metric-available').textContent=drivers.filter(d=>d.day_status==='DISPONIVEL').length;$('metric-assigned').textContent=drivers.filter(d=>d.day_status==='PROGRAMADO').length;topKpiUpdate('import',[topNum(a.total_routes),topNum(drivers.length),topNum(drivers.filter(d=>d.day_status==='DISPONIVEL').length),topNum(drivers.filter(d=>d.day_status==='PROGRAMADO').length),'—','—']);}
+async function showTab(t){if(t==='billing'&&!financeOwner){message('Faturamento restrito ao usuário autorizado.',true);return;}if(t==='finance-params'&&$('finance-params-nav').classList.contains('hidden')){message('Acesso restrito ao administrador.',true);return;}tab=t;topKpiRender(t);document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','finance-params','availability','sac','occurrences','recipients','reasons','operational-summary'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='operational-summary')await loadOperationalSummary();if(t==='billing')await loadBilling();if(t==='finance-params')await loadFinanceParams();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 const sideToggle=$('sidebar-toggle'),cadToggle=$('cadastros-toggle'),cadMenu=$('cadastros-submenu');
 sideToggle.onclick=()=>{const collapsed=document.body.classList.toggle('sidebar-collapsed');sideToggle.title=collapsed?'Expandir menu':'Recolher menu';sideToggle.querySelector('span').textContent=collapsed?'Expandir menu':'Recolher menu';};
@@ -64,6 +90,7 @@ async function loadAvailability(){
  drivers=await rpc('pcd_v8_drivers',{p_date:$('availability-date').value});
  const cat=avSelected('availability-category'),profile=avSelected('availability-profile'),status=avSelected('availability-status'),query=norm($('availability-search').value);
  const shown=drivers.filter(d=>(!cat.length||cat.includes(d.category))&&(!profile.length||profile.some(x=>norm(x)===norm(d.profile)))&&(!status.length||status.includes(d.day_status))&&(!query||norm(d.name).includes(query)||norm(d.plate).includes(query)));
+ topKpiUpdate('availability',[topNum(shown.length),topNum(shown.filter(d=>d.day_status==='DISPONIVEL').length),topNum(shown.filter(d=>d.day_status==='INDISPONIVEL').length),topNum(shown.filter(d=>d.day_status==='PROGRAMADO').length),topNum(shown.filter(d=>d.base_status==='INATIVO').length),topNum(shown.filter(d=>d.registration_pending).length)]);
  const previous=await loadPreviousRoutes($('availability-date').value);
  const key=availabilitySort.key,dir=availabilitySort.dir;
  shown.sort((a,b)=>{const av=key==='routes_count'?Number(a.routes_count):String(a[key]??'').toLocaleUpperCase('pt-BR');const bv=key==='routes_count'?Number(b.routes_count):String(b[key]??'').toLocaleUpperCase('pt-BR');const v=typeof av==='number'?av-bv:String(av).localeCompare(String(bv),'pt-BR',{numeric:true});return (v||a.name.localeCompare(b.name,'pt-BR'))*dir;});
@@ -149,6 +176,7 @@ function v13RenderSummary(data){
  const sum=(arr,key)=>arr.reduce((n,r)=>n+(Number(r[key])||0),0);
  const opp=active.filter(r=>{const offered=PROFILE_ORDER.indexOf(norm(r.vehicle_profile));const actual=PROFILE_ORDER.indexOf(norm(r.driver_profile||r.assigned_profile||''));return offered>=0&&actual>=0&&actual<offered&&!!r.driver_name;}).length;
  const cards=[['Rotas ofertadas',data.length.toLocaleString('pt-BR')],['Peso total',sum(active,'gross_weight').toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg'],['Entregas totais',sum(active,'delivery_count').toLocaleString('pt-BR')],['Valor mercadoria',sum(active,'merchandise_value').toLocaleString('pt-BR',{style:'currency',currency:'BRL'})],['Oportunidades',opp+' confirmadas'],['Não embarcaram',data.length-active.length]];
+ topKpiUpdate('routes',[topNum(data.length),topNum(data.filter(r=>routeDisplayStatus(r)==='PROGRAMADO').length),topNum(data.filter(r=>routeDisplayStatus(r)==='EMPLACAR').length),topNum(data.length-active.length),topNum(sum(active,'gross_weight'))+' kg',topNum(sum(active,'delivery_count'))]);
  $('route-summary').innerHTML=cards.map(([label,value])=>`<div class="v13-card"><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join('');
  // Sem perfil do motorista retornado pela consulta, a oportunidade permanece conservadora (não presumida).
 }
@@ -201,6 +229,7 @@ async function loadOperationalSummary(){
   const opp=active.filter(r=>{const offered=PROFILE_ORDER.indexOf(norm(r.vehicle_profile));const actual=PROFILE_ORDER.indexOf(norm(r.driver_profile||r.assigned_profile||''));return offered>=0&&actual>=0&&actual<offered&&!!r.driver_name;}).length;
   const fmt=n=>n.toLocaleString('pt-BR');
   const cards=[['Rotas ofertadas',fmt(data.length)],['Programadas',fmt(countStatus('PROGRAMADO'))],['A emplacar',fmt(countStatus('EMPLACAR'))],['Não embarcaram',fmt(countStatus('NÃO EMBARCOU'))],['Taxa de programação',data.length?(countStatus('PROGRAMADO')/data.length*100).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'],['Peso operacional',fmt(sum(active,'gross_weight'))+' kg'],['Entregas operacionais',fmt(sum(active,'delivery_count'))],['Mercadoria operacional',sum(active,'merchandise_value').toLocaleString('pt-BR',{style:'currency',currency:'BRL'})],['Oportunidades verificáveis',fmt(opp)]];
+  topKpiUpdate('operational-summary',[topNum(data.length),topNum(countStatus('PROGRAMADO')),topNum(countStatus('EM ROTA')),topNum(countStatus('CONCLUÍDO')),topNum(countStatus('NÃO EMBARCOU')),topNum(sum(active,'delivery_count'))]);
   $('ops-kpis').innerHTML=cards.map(([label,value])=>`<div class="v13-card"><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join('');
   const statuses=new Map(),profiles=new Map(),groups=new Map();
   for(const r of data){const st=routeDisplayStatus(r),pf=r.vehicle_profile||'Sem perfil',name=r.driver_name||'Sem motorista';statuses.set(st,(statuses.get(st)||0)+1);profiles.set(pf,(profiles.get(pf)||0)+1);const g=groups.get(name)||{name,count:0,last:''};g.count++;if(String(r.route_date||'')>g.last)g.last=String(r.route_date||'');groups.set(name,g);}
@@ -235,6 +264,7 @@ async function loadRoutes(which){
   totals.sac=filtered.length;
   const countStatus=name=>filtered.filter(r=>routeDisplayStatus(r)===name).length;
   const sacCards=[['Rotas acompanhadas',filtered.length],['Em rota',countStatus('EM ROTA')],['Concluídas',countStatus('CONCLUÍDO')],['A emplacar',countStatus('EMPLACAR')],['Não embarcaram',countStatus('NÃO EMBARCOU')],['Entregas previstas',filtered.reduce((n,r)=>n+(Number(r.delivery_count)||0),0)]];
+  topKpiUpdate('sac',sacCards.map(x=>topNum(x[1])));
   const sacSummary=$('sac-summary');
   if(sacSummary)sacSummary.innerHTML=sacCards.map(([label,value])=>`<div class="v13-card"><small>${esc(label)}</small><strong>${Number(value).toLocaleString('pt-BR')}</strong></div>`).join('');
   a={total:filtered.length};data=filtered.slice(pages.sac*50,(pages.sac+1)*50);
@@ -754,6 +784,7 @@ async function loadOccurrences(){
  const data=await rpc('pcd_v94_list_occurrences',{p_view:view,p_date:date,p_search:search,p_limit:30,p_offset:pages.occurrences*30});
  totals.occurrences=data.total||0;
  const m=data.metrics||{};$('occ-metric-open').textContent=m.open??'—';$('occ-metric-closed').textContent=m.closed??'—';$('occ-metric-email').textContent=m.email_attention??'—';
+ topKpiUpdate('occurrences',[topNum(data.total),m.open==null?'—':topNum(m.open),m.closed==null?'—':topNum(m.closed),m.email_attention==null?'—':topNum(m.email_attention),'—','—']);
  const items=data.rows||[];
  $('occ-list').innerHTML=table(['Ocorrência','Abertura','Plano','Cliente','Cidade','Motivo','Situação','E-mail','Ação'],items.map(o=>['OC-'+String(o.id).padStart(6,'0'),new Date(o.created_at).toLocaleString('pt-BR'),o.plan_number,o.customer_name,o.city,o.reason,o.status,o.email_status||'SEM ENVIO','']));
  $('occ-list').querySelectorAll('tbody tr').forEach((tr,i)=>{
@@ -794,6 +825,7 @@ $('recipient-bulk-activate').onclick=()=>bulkRecipients(true);
 $('recipient-bulk-deactivate').onclick=()=>bulkRecipients(false);
 async function loadRecipients(){
  const term=$('recipient-search').value.trim();const items=await rpc('pcd_oc_list_recipients',{p_search:term});
+ topKpiUpdate('recipients',[topNum(items.length),topNum(items.filter(x=>x.active).length),topNum(items.filter(x=>!x.active).length),topNum(items.filter(x=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x.email||'')).length),topNum(items.filter(x=>String(x.display_name||'').trim()).length),topNum(items.filter(x=>!String(x.display_name||'').trim()).length)]);
  $('recipient-bulk-controls').classList.toggle('hidden',!financeOwner);
  $('recipient-bulk-counts').textContent=term?'Contagem dos resultados filtrados: '+items.filter(x=>x.active).length+' ativos / '+items.length+' exibidos':'Ativos: '+items.filter(x=>x.active).length+' · Inativos: '+items.filter(x=>!x.active).length;
  $('recipient-table').innerHTML=table(['Nome','E-mail','Status','Alterado em','Ação'],items.map(x=>[x.display_name,x.email,'',new Date(x.updated_at).toLocaleString('pt-BR'),'']));
@@ -835,6 +867,7 @@ async function loadReasons(){
  const items=await rpc('pcd_oc_list_reasons',{p_search:$('reason-search').value.trim(),p_include_inactive:true});
  const status=$('reason-status').value;
  const filtered=items.filter(x=>status==='TODOS'||(status==='ATIVOS'&&x.active)||(status==='INATIVOS'&&!x.active));
+ topKpiUpdate('reasons',[topNum(filtered.length),topNum(filtered.filter(x=>x.active).length),topNum(filtered.filter(x=>!x.active).length),topNum(filtered.reduce((n,x)=>n+Number(x.usage_count||0),0)),topNum(filtered.filter(x=>x.reason_group).length),topNum(filtered.filter(x=>!x.reason_group).length)]);
  $('reason-table').innerHTML=table(['Motivo','Grupo','Utilizações','Status','Observação','Ação'],filtered.map(x=>[x.name,x.reason_group||'',String(x.usage_count),'',x.notes||'','']));
  $('reason-table').querySelectorAll('tbody tr').forEach((tr,i)=>{
   const x=filtered[i],badge=document.createElement('span');badge.className='badge '+(x.active?'oc-open':'oc-cancelled');badge.textContent=x.active?'ATIVO':'INATIVO';tr.children[3].append(badge);
@@ -1370,6 +1403,7 @@ async function loadBilling(){requireFinanceOwner();
  const criteria={paymentStatus:$('billing-payment-status').value,driver:$('billing-driver').value,year:$('billing-year').value,month:$('billing-month').value,fortnight:$('billing-fortnight').value,profile:$('billing-profile').value,margin:$('billing-margin').value};
  const keep=filterFacts.map((x,i)=>(!criteria.paymentStatus||payStatus(summaryRows[i])===criteria.paymentStatus)&&(!criteria.driver||x.driver===criteria.driver)&&(!criteria.year||x.year===Number(criteria.year))&&(!criteria.month||x.month===Number(criteria.month))&&(!criteria.fortnight||(criteria.fortnight==='1'?x.day>=1&&x.day<=15:x.day>=16))&&(!criteria.profile||x.profile===criteria.profile)&&(!criteria.margin||(criteria.margin==='positive'?x.margin!=null&&x.margin>0:criteria.margin==='negative'?x.margin!=null&&x.margin<0:criteria.margin==='zero'?x.margin===0:x.margin==null)));
  const filteredResult=result.filter((_,i)=>keep[i]),filteredMeta=metadata.filter((_,i)=>keep[i]),filteredSummary=summaryRows.filter((_,i)=>keep[i]);
+ topKpiUpdate('billing',[topNum(filteredSummary.length),billingMoney(filteredSummary.reduce((n,x)=>n+Number(x.revenue||0),0)),billingMoney(filteredSummary.reduce((n,x)=>n+Number(x.total||0),0)),billingMoney(filteredSummary.reduce((n,x)=>n+Number(x.margin||0),0)),topNum(filteredSummary.filter(x=>payStatus(x)==='pending').length),topNum(filteredSummary.filter(x=>payStatus(x)==='settled').length)]);
  paymentCandidates=filteredSummary.map(x=>({...x}));
  billingSummaryRender(filteredSummary);
  billingPage=Math.min(Math.max(0,billingPage),Math.max(0,Math.ceil(filteredResult.length/50)-1));
