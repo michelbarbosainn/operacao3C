@@ -269,7 +269,7 @@ async function loadRoutes(which){
   if(sacSummary)sacSummary.innerHTML=sacCards.map(([label,value])=>`<div class="v13-card"><small>${esc(label)}</small><strong>${Number(value).toLocaleString('pt-BR')}</strong></div>`).join('');
   a={total:filtered.length};data=filtered.slice(pages.sac*50,(pages.sac+1)*50);
  }
- const headers=which==='routes'?['Plano','Complemento Solicitação','Data rota','Data car.','Hora car.','Cidade','Peso','Valor NF','Entregas','Perfil','Motorista','Placa','Status rota','Carregado','GreenMile']:['Plano','Complemento','Solicitação','Data rota','Data car.','Hora car.','Cidade','Perfil','Peso','Entregas','Valor NF','Motorista','Placa','Status rota','GreenMile'];
+ const headers=which==='routes'?['Plano','Complemento Solicitação','Data rota','Data car.','Hora car.','Cidade','Peso','Valor NF','Entregas','Perfil','Motorista','Placa','Status rota','Carregado','GreenMile']:['Plano','Complemento','Solicitação','Data rota','Data car.','Hora car.','Cidade','Perfil','Peso','Entregas','Valor NF','Motorista','Placa','Status rota','GreenMile','Performance'];
  const target=$(which==='sac'?'sac-table':'route-table');
  const loadingStates=which==='routes'&&data.length?await rpc('pcd_v10_loading_states',{p_route_ids:data.map(r=>Number(r.id))}):[];
  // V13.28: consulta apenas a classificação operacional, sem valores ou autorização do cliente.
@@ -284,7 +284,7 @@ async function loadRoutes(which){
  if(which==='routes')for(const id of loadedIds)v13Loaded.add(id);
  if(which==='routes')window.innovaVisibleLoadedIds=loadedIds;
  if(which==='routes')window.innovaVisibleProgramRows=data.map(r=>({...r}));
- target.innerHTML=table(headers,data.map(r=>which==='routes'?[r.plan_number,routeComplement(r),brDate(r.route_date),brDate(r.loading_on),r.loading_time||'—',r.city,r.gross_weight,r.merchandise_value,r.delivery_count,r.vehicle_profile,r.driver_name,r.plate,routeDisplayStatus(r),'',r.gm_status]:[r.plan_number,r.complement,brDate(r.request_date),brDate(r.route_date),brDate(r.loading_on),r.loading_time||'—',r.city,r.vehicle_profile,r.gross_weight,r.delivery_count,r.merchandise_value,r.driver_name,r.plate,routeDisplayStatus(r),r.gm_status]));
+ target.innerHTML=table(headers,data.map(r=>which==='routes'?[r.plan_number,routeComplement(r),brDate(r.route_date),brDate(r.loading_on),r.loading_time||'—',r.city,r.gross_weight,r.merchandise_value,r.delivery_count,r.vehicle_profile,r.driver_name,r.plate,routeDisplayStatus(r),'',r.gm_status]:[r.plan_number,r.complement,brDate(r.request_date),brDate(r.route_date),brDate(r.loading_on),r.loading_time||'—',r.city,r.vehicle_profile,r.gross_weight,r.delivery_count,r.merchandise_value,r.driver_name,r.plate,routeDisplayStatus(r),r.gm_status,'—']));
  closeComplementPopup();
  if(which==='routes'){
   target.querySelectorAll('thead th').forEach((th,i)=>{th.classList.add('route-sortable');th.tabIndex=0;th.setAttribute('role','button');th.title='Ordenar por esta coluna';const arrow=document.createElement('span');arrow.className='route-sort-arrow';arrow.textContent=routeSort.index===i?(routeSort.dir===-1?' ▼':' ▲'):' ↕';th.append(arrow);const change=()=>{routeSort={index:i,dir:routeSort.index===i?-routeSort.dir:-1};pages.routes=0;loadRoutes('routes').catch(e=>message(e.message,true));};th.onclick=change;th.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();change();}};});
@@ -437,10 +437,40 @@ async function loadRoutes(which){
    gmCell.textContent='';gmCell.append(gm);
   }
  });
+
+ if(which==='sac'){
+  // Consulta em lote, limitada aos IDs da pagina. A RPC nao retorna dados financeiros.
+  try{
+   const gmRows=await rpc('pcd_gm_v1344_get',{p_route_ids:data.map(r=>Number(r.id))});
+   const gmById=new Map((gmRows||[]).map(x=>[Number(x.route_id),x]));
+   target.querySelectorAll('tbody tr').forEach((tr,i)=>{
+    const r=data[i], cell=tr.children[15], rec=gmById.get(Number(r.id));
+    const auto=rec?.auto_completed,manual=rec?.manual_completed;
+    const value=manual!==null&&manual!==undefined?manual:auto;
+    const total=Number(r.delivery_count)||0;
+    const btn=document.createElement('button');btn.type='button';btn.className='gm-performance-btn';
+    btn.textContent=value===null||value===undefined?'— / '+total:String(value)+' / '+total+(total?' · '+Math.round(Number(value)/total*100)+'%':'');
+    btn.title=(manual!==null&&manual!==undefined?'Ajuste manual':'Importacao GreenMile')+' | Clique para editar';
+    btn.dataset.source=manual!==null&&manual!==undefined?'manual':rec?'csv':'none';
+    btn.onclick=()=>{
+     modal('Performance GreenMile','Plano '+r.plan_number+' · '+brDate(r.route_date),
+      '<p>Paradas realizadas conforme Resumo da Rota: <b>'+esc(auto??'Nao importado')+'</b></p>'+ 
+      '<label>Quantidade confirmada manualmente (deixe vazio para usar o CSV)</label><input id="gm-manual-count" type="number" min="0" max="'+total+'" step="1" value="'+esc(manual??'')+'">'+
+      '<p class="muted">Indicador de paradas realizadas, nao comprovacao de entrega ou assinatura digital.</p>',
+      async()=>{
+       const raw=$('gm-manual-count').value.trim();const val=raw===''?null:Number(raw);
+       if(val!==null&&(!Number.isInteger(val)||val<0||val>total))throw Error('Informe quantidade entre 0 e '+total);
+       await rpc('pcd_gm_v1344_manual',{p_route_id:Number(r.id),p_completed:val});
+      });
+    };
+    cell.textContent='';cell.append(btn);
+   });
+  }catch(e){console.warn('GreenMile nao disponivel:',e.message);}
+ }
  // V13.43: reorganizar apenas a apresentacao SAC DEPOIS de configurar
  // os controles, preservando os indices originais usados pelos eventos.
  if(which==='sac'){
-  const order=[0,1,6,7,8,9,10,11,12,13,14,2,3,4,5];
+  const order=[0,1,6,7,8,9,15,10,11,12,13,14,2,3,4,5];
   const reorder=tr=>{
    const cells=Array.from(tr.children);
    if(cells.length!==order.length)return;
@@ -483,6 +513,35 @@ async function loadRoutes(which){
 }
 function routeDisplayStatus(r){const st=norm(r.route_status);if(st==='NAOEMBARCOU')return 'NÃO EMBARCOU';if(st==='CONTINUARROTA')return 'CONTINUAR ROTA';if(st==='TRANSFERIRCARRO')return 'TRANSFERIR CARRO';if(st==='PROGRAMAR'||st==='EMPLACAR')return (r.driver_name||r.driver_id)?'PROGRAMADO':'EMPLACAR';if(st==='PROGRAMADO')return (r.driver_name||r.driver_id)?'PROGRAMADO':'EMPLACAR';return r.route_status||((r.driver_name||r.driver_id)?'PROGRAMADO':'EMPLACAR');}
 
+
+// V13.44: importacao CSV Resumo da Rota; nenhuma credencial GreenMile e utilizada.
+$('gm-import-btn').onclick=()=>$('gm-import-file').click();
+$('gm-import-file').onchange=async e=>{
+ const file=e.target.files?.[0];if(!file)return;
+ const button=$('gm-import-btn');button.disabled=true;
+ try{
+  const text=await file.text();const first=text.replace(/^\uFEFF/,'').split(/\r?\n/,1)[0];
+  const sep=first.includes('\t')?'\t':first.includes(';')?';':',';
+  const grid=parseDelimited(text.replace(/^\uFEFF/,''),sep);
+  if(grid.length<2)throw Error('CSV sem registros.');
+  const headers=grid.shift().map(x=>norm(x));
+  const idx=name=>headers.indexOf(norm(name));
+  for(const key of ['Chave','Data da rota','Realizado Realizadas','Rota Finalizada Data'])if(idx(key)<0)throw Error('Coluna ausente: '+key);
+  const records=grid.map((row,i)=>{
+   const get=k=>String(row[idx(k)]??'').trim();const plan=get('Chave');if(!plan)return null;
+   const raw=get('Realizado Realizadas');const count=Number(raw.replace(',','.'));
+   if(!Number.isInteger(count)||count<0)throw Error('Linha '+(i+2)+': quantidade realizada invalida.');
+   const date=get('Data da rota');const m=date.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+   if(!m)throw Error('Linha '+(i+2)+': data invalida: '+date);
+   const ended=get('Rota Finalizada Data');
+   return {plan_number:plan,gm_route_date:`${m[3]}-${m[2]}-${m[1]}`,auto_completed:count,gm_finished:!!ended&&ended!=='-',source_line:i+2};
+  }).filter(Boolean);
+  if(!records.length)throw Error('Nenhuma rota encontrada no CSV.');
+  const response=await rpc('pcd_gm_v1344_import',{p_rows:records});
+  $('gm-import-feedback').textContent='Importados: '+response.updated+' | Ignorados: '+response.skipped+' | Duplicados: '+response.duplicates;
+  await loadRoutes('sac');message('GreenMile importado: '+response.updated+' rotas vinculadas. Confira as divergencias.');
+ }catch(err){message('Falha na importacao GreenMile: '+err.message,true);}finally{button.disabled=false;e.target.value='';}
+};
 for(const which of ['routes','sac']){const prefix=which==='sac'?'sac':'route';$(prefix+'-filter').onclick=()=>{pages[which]=0;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-prev').onclick=()=>{pages[which]--;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-next').onclick=()=>{pages[which]++;loadRoutes(which).catch(e=>message(e.message,true));};$('refresh-'+which).onclick=()=>loadRoutes(which).catch(e=>message(e.message,true));}
 function modal(title,summary,body,fn){$('modal-save').classList.remove('hidden');$('modal-save').textContent='Salvar';$('modal-save').disabled=false;$('modal-title').textContent=title;$('modal-summary').textContent=summary;$('modal-body').innerHTML=body;modalSave=fn;$('modalbg').classList.remove('hidden');}
 $('modal-close').onclick=()=>{$('modalbg').classList.add('hidden');};$('modal-save').onclick=async()=>{try{$('modal-save').disabled=true;await modalSave();$('modalbg').classList.add('hidden');await refreshMetrics();if(tab==='recipients')await loadRecipients();else await loadRoutes(tab==='sac'?'sac':'routes');message('Alteração salva com sucesso.');}catch(e){message(e.message,true);}finally{$('modal-save').disabled=false;}};
