@@ -540,3 +540,12 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 .management-rankings table{font-size:11px}
 .management-rankings td,.management-rankings th{white-space:nowrap}
 @media(max-width:1050px){.management-rankings{grid-template-columns:1fr}}
+
+/* V13.64: resumo completo do faturamento ocupa exclusivamente o topo do módulo. */
+#innova-top-kpis.billing-summary-top{display:block!important;margin-bottom:14px}
+#innova-top-kpis.billing-summary-top #billing-stats{margin:0!important;display:grid!important;grid-template-columns:repeat(8,minmax(0,1fr))!important;gap:8px!important}
+#innova-top-kpis.billing-summary-top #billing-stats>div{background:#fff!important;border:1px solid #e2eaf3!important;border-radius:10px!important;padding:12px!important;min-height:70px}
+#innova-top-kpis.billing-summary-top #billing-stats small{font-size:11px!important}
+#innova-top-kpis.billing-summary-top #billing-stats strong{font-size:17px!important}
+@media(max-width:1450px){#innova-top-kpis.billing-summary-top #billing-stats{grid-template-columns:repeat(4,minmax(0,1fr))!important}}
+@media(max-width:760px){#innova-top-kpis.billing-summary-top #billing-stats{grid-template-columns:repeat(2,minmax(0,1fr))!important}}

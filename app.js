@@ -32,7 +32,7 @@ async function enter(user){
    await db.auth.signOut();throw Error('Acesso restrito a contas corporativas @innovasl.com.br.');
   }
   $('who').textContent=user.email;
-  const financeAdmin=String(user.email||'').toLowerCase()===FINANCE_OWNER_EMAIL;
+  const financeAdmin=String(user.email||'').trim().toLowerCase()===FINANCE_OWNER_EMAIL;
   financeOwner=financeAdmin;
   document.querySelectorAll('[data-tab="billing"], [data-tab="management"]').forEach(el=>{el.classList.toggle('hidden',!financeOwner);el.disabled=!financeOwner;});
   $('finance-params-nav').classList.toggle('hidden',!financeAdmin);
@@ -68,6 +68,13 @@ const topKpiTemplates={
 };
 function topKpiRender(t){
  if(t!==tab)return;
+ const top=$('innova-top-kpis'), billing=$('billing-stats'), home=$('billing-stats-home');
+ if(t==='billing'){
+  if(top&&billing){top.classList.add('billing-summary-top');top.replaceChildren(billing);}
+  return;
+ }
+ if(home&&billing&&billing.parentElement!==home)home.appendChild(billing);
+ top?.classList.remove('billing-summary-top');
  const names=topKpiTemplates[t]||topKpiTemplates.import;
  const vals=topKpiCache.get(t)||[];
  const el=$('innova-top-kpis');if(!el)return;
@@ -78,7 +85,7 @@ function topKpiUpdate(t,values){topKpiCache.set(t,values.map(v=>v==null?'—':St
 const topNum=n=>Number(n||0).toLocaleString('pt-BR');
 
 async function refreshMetrics(){const a=await rpc('pcd_dashboard');$('metric-routes').textContent=a.total_routes;const day=$('availability-date').value||today();drivers=await rpc('pcd_v8_drivers',{p_date:day});$('metric-drivers').textContent=drivers.length;$('metric-available').textContent=drivers.filter(d=>d.day_status==='DISPONIVEL').length;$('metric-assigned').textContent=drivers.filter(d=>d.day_status==='PROGRAMADO').length;topKpiUpdate('import',[topNum(a.total_routes),topNum(drivers.length),topNum(drivers.filter(d=>d.day_status==='DISPONIVEL').length),topNum(drivers.filter(d=>d.day_status==='PROGRAMADO').length),'—','—']);}
-async function showTab(t){if((t==='billing'||t==='management')&&!financeOwner){message('Faturamento restrito ao usuário autorizado.',true);return;}if(t==='finance-params'&&$('finance-params-nav').classList.contains('hidden')){message('Acesso restrito ao administrador.',true);return;}tab=t;topKpiRender(t);document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','finance-params','availability','sac','occurrences','recipients','reasons','operational-summary','management'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='operational-summary')await loadOperationalSummary();if(t==='billing')await loadBilling();if(t==='management')await loadManagement();if(t==='finance-params')await loadFinanceParams();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
+async function showTab(t){if((t==='billing'||t==='management')&&!financeOwner){message('Acesso financeiro e gerencial exclusivo do usuário autorizado.',true);return;}if(t==='finance-params'&&$('finance-params-nav').classList.contains('hidden')){message('Acesso restrito ao administrador.',true);return;}tab=t;topKpiRender(t);document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','finance-params','availability','sac','occurrences','recipients','reasons','operational-summary','management'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='operational-summary')await loadOperationalSummary();if(t==='billing')await loadBilling();if(t==='management')await loadManagement();if(t==='finance-params')await loadFinanceParams();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 const sideToggle=$('sidebar-toggle'),cadToggle=$('cadastros-toggle'),cadMenu=$('cadastros-submenu');
 sideToggle.onclick=()=>{const collapsed=document.body.classList.toggle('sidebar-collapsed');sideToggle.title=collapsed?'Expandir menu':'Recolher menu';sideToggle.querySelector('span').textContent=collapsed?'Expandir menu':'Recolher menu';};
