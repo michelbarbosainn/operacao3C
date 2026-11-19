@@ -513,3 +513,19 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 #billing-table .billing-comp-inline .billing-comp-input{width:85px;min-width:85px}
 #billing-table .billing-comp-inline .billing-reason-input{width:112px;min-width:112px}
 #billing-table .billing-comp-inline .billing-saving{opacity:.55;background:#eef5ff}
+
+/* V13.61 — dashboard gerencial, layout discreto e responsivo */
+.management-filters{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:12px;margin:18px 0}
+.management-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:15px 0 22px}
+.management-card{border:1px solid #e1e8f0;background:#fbfcfe;border-radius:9px;padding:14px;min-width:0}
+.management-card span{display:block;font-size:11px;color:#647a90;margin-bottom:9px}
+.management-card strong{font-size:18px;font-weight:550;overflow-wrap:anywhere;color:#183353}
+.management-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:15px;margin-bottom:15px}
+.management-section{border:1px solid #e1e8f0;border-radius:10px;padding:15px;margin-bottom:14px;min-width:0}
+.management-section h2{font-size:14px;font-weight:550;margin:0 0 14px}
+.management-chart-row{display:grid;grid-template-columns:65px minmax(60px,1fr) 105px;gap:10px;align-items:center;font-size:11px;margin:12px 0}
+.management-bar-track{background:#e9eef6;border-radius:4px;height:11px;overflow:hidden}
+.management-bar{height:100%;background:#4278a9;border-radius:4px}
+.management-negative td:last-child{color:#a13b2b;font-weight:600}
+@media(max-width:900px){.management-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.management-grid{grid-template-columns:1fr}}
+@media(max-width:600px){.management-filters{grid-template-columns:1fr 1fr}.management-cards{grid-template-columns:1fr 1fr}.management-card strong{font-size:15px}}

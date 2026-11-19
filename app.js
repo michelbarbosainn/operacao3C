@@ -34,7 +34,7 @@ async function enter(user){
   $('who').textContent=user.email;
   const financeAdmin=String(user.email||'').toLowerCase()===FINANCE_OWNER_EMAIL;
   financeOwner=financeAdmin;
-  document.querySelectorAll('[data-tab="billing"]').forEach(el=>{el.classList.toggle('hidden',!financeOwner);el.disabled=!financeOwner;});
+  document.querySelectorAll('[data-tab="billing"], [data-tab="management"]').forEach(el=>{el.classList.toggle('hidden',!financeOwner);el.disabled=!financeOwner;});
   $('finance-params-nav').classList.toggle('hidden',!financeAdmin);
   $('login-panel').classList.add('hidden');
   $('main').classList.remove('hidden');
@@ -60,6 +60,7 @@ const topKpiTemplates={
  sac:['Rotas acompanhadas','Em rota','Concluídas','Não embarcaram','Entregas previstas','Ocorrências'],
  occurrences:['Ocorrências nos filtros','Abertas','Encerradas','E-mails com atenção','Em tratativa','Sem envio'],
  'operational-summary':['Rotas consultadas','Programadas','Em rota','Concluídas','Não embarcaram','Entregas previstas'],
+ management:['Rotas analisadas','Receita bruta','Receita líquida ICMS','Custo agregado','Margem estimada','Rotas negativas'],
  billing:['Rotas nos filtros','Receita prevista','Custo previsto','Margem estimada','Fretes pendentes','Fretes quitados'],
  recipients:['Destinatários exibidos','Ativos','Inativos','E-mails válidos','Com nome','Sem nome'],
  reasons:['Motivos exibidos','Ativos','Inativos','Utilizações','Com grupo','Sem grupo'],
@@ -77,7 +78,7 @@ function topKpiUpdate(t,values){topKpiCache.set(t,values.map(v=>v==null?'—':St
 const topNum=n=>Number(n||0).toLocaleString('pt-BR');
 
 async function refreshMetrics(){const a=await rpc('pcd_dashboard');$('metric-routes').textContent=a.total_routes;const day=$('availability-date').value||today();drivers=await rpc('pcd_v8_drivers',{p_date:day});$('metric-drivers').textContent=drivers.length;$('metric-available').textContent=drivers.filter(d=>d.day_status==='DISPONIVEL').length;$('metric-assigned').textContent=drivers.filter(d=>d.day_status==='PROGRAMADO').length;topKpiUpdate('import',[topNum(a.total_routes),topNum(drivers.length),topNum(drivers.filter(d=>d.day_status==='DISPONIVEL').length),topNum(drivers.filter(d=>d.day_status==='PROGRAMADO').length),'—','—']);}
-async function showTab(t){if(t==='billing'&&!financeOwner){message('Faturamento restrito ao usuário autorizado.',true);return;}if(t==='finance-params'&&$('finance-params-nav').classList.contains('hidden')){message('Acesso restrito ao administrador.',true);return;}tab=t;topKpiRender(t);document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','finance-params','availability','sac','occurrences','recipients','reasons','operational-summary'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='operational-summary')await loadOperationalSummary();if(t==='billing')await loadBilling();if(t==='finance-params')await loadFinanceParams();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
+async function showTab(t){if((t==='billing'||t==='management')&&!financeOwner){message('Faturamento restrito ao usuário autorizado.',true);return;}if(t==='finance-params'&&$('finance-params-nav').classList.contains('hidden')){message('Acesso restrito ao administrador.',true);return;}tab=t;topKpiRender(t);document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','finance-params','availability','sac','occurrences','recipients','reasons','operational-summary','management'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='operational-summary')await loadOperationalSummary();if(t==='billing')await loadBilling();if(t==='management')await loadManagement();if(t==='finance-params')await loadFinanceParams();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 const sideToggle=$('sidebar-toggle'),cadToggle=$('cadastros-toggle'),cadMenu=$('cadastros-submenu');
 sideToggle.onclick=()=>{const collapsed=document.body.classList.toggle('sidebar-collapsed');sideToggle.title=collapsed?'Expandir menu':'Recolher menu';sideToggle.querySelector('span').textContent=collapsed?'Expandir menu':'Recolher menu';};
@@ -1574,6 +1575,7 @@ async function loadBilling(){requireFinanceOwner();
  topKpiUpdate('billing',[topNum(filteredSummary.length),billingMoney(filteredSummary.reduce((n,x)=>n+Number(x.revenue||0),0)),billingMoney(filteredSummary.reduce((n,x)=>n+Number(x.total||0),0)),billingMoney(filteredSummary.reduce((n,x)=>n+Number(x.margin||0),0)),topNum(filteredSummary.filter(x=>payStatus(x)==='pending').length),topNum(filteredSummary.filter(x=>payStatus(x)==='settled').length)]);
  paymentCandidates=filteredSummary.map(x=>({...x}));
  billingSummaryRender(filteredSummary);
+ managementBillingCache=summaryRows.map((x,i)=>({...x,profile:filterFacts[i]?.profile||''}));
  billingPage=Math.min(Math.max(0,billingPage),Math.max(0,Math.ceil(filteredResult.length/50)-1));
  const pageStart=billingPage*50;const visibleResult=filteredResult.slice(pageStart,pageStart+50);const visibleMetadata=filteredMeta.slice(pageStart,pageStart+50);
  for(let i=0;i<filteredResult.length;i++){filteredResult[i][15]=billingMoney(payRowState(filteredSummary[i]).paid);}
@@ -1635,6 +1637,58 @@ async function loadBilling(){requireFinanceOwner();
  $('billing-page').textContent=`${filteredResult.length} rotas filtradas (${result.length} consolidadas no banco) · página ${billingPage+1}`;
  $('billing-prev').disabled=billingPage===0;$('billing-next').disabled=(billingPage+1)*50>=filteredResult.length;
 }
+
+// V13.61 — Painel gerencial: reutiliza a consolidação financeira já validada pelo faturamento.
+// Os indicadores são estimativas, não comprovantes de recebimento ou entregas concluídas.
+let managementBillingCache=null;
+const managementMoney=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const managementPct=v=>Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';
+async function loadManagement(){
+ requireFinanceOwner();
+ const info=$('management-info');info.textContent='Atualizando consolidação financeira…';
+ // Evita duplicar regras de cálculo de ICMS, pedágios, adicionais e continuidade.
+ // A rotina existente monta a consolidação completa, independentemente da paginação.
+ await loadBilling();
+ const data=managementBillingCache||[];
+ const drivers=[...new Set(data.map(x=>x.driver).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+ const profiles=[...new Set(data.map(x=>x.profile).filter(Boolean))].sort();
+ const cities=[...new Set(data.map(x=>x.city).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+ for(const [id,items] of [['management-driver',drivers],['management-profile',profiles],['management-city',cities]]){
+  const el=$(id),old=el.value;el.replaceChildren(new Option('Todos', ''));
+  for(const v of items)el.add(new Option(v,v));el.value=items.includes(old)?old:'';
+ }
+ if(!$('management-from').value&&!$('management-to').value){
+  const now=today();$('management-from').value=now.slice(0,7)+'-01';$('management-to').value=now;
+ }
+ renderManagement();
+}
+function renderManagement(){
+ requireFinanceOwner();
+ const data=managementBillingCache||[];
+ const from=$('management-from').value,to=$('management-to').value;
+ if(from&&to&&from>to){$('management-info').textContent='A data inicial não pode ser posterior à data final.';return;}
+ const driver=$('management-driver').value,profile=$('management-profile').value,city=$('management-city').value;
+ const rows=data.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&(!driver||r.driver===driver)&&(!profile||r.profile===profile)&&(!city||r.city===city));
+ const complete=rows.filter(r=>[r.revenue,r.icms,r.total,r.margin].every(v=>v!=null&&Number.isFinite(Number(v))));
+ const incomplete=rows.length-complete.length;
+ const sum=(key,arr=complete)=>arr.reduce((n,r)=>n+Number(r[key]||0),0);
+ const revenue=sum('revenue'),icms=sum('icms'),cost=sum('total'),margin=sum('margin');
+ const net=revenue-icms,neg=complete.filter(r=>r.margin<0);
+ const kpis=[rows.length,managementMoney(revenue),managementMoney(net),managementMoney(cost),managementMoney(margin),neg.length];
+ topKpiUpdate('management',kpis);
+ const cards=[['Rotas no período',rows.length.toLocaleString('pt-BR')],['Receita bruta',managementMoney(revenue)],['Receita após ICMS',managementMoney(net)],['Frete + pedágio + adicional',managementMoney(cost)],['Margem estimada',managementMoney(margin)],['Margem sobre receita líquida',net?managementPct(margin/net*100):'—'],['Rotas com margem negativa',neg.length.toLocaleString('pt-BR')],['Rotas sem cálculo completo',incomplete.toLocaleString('pt-BR')]];
+ $('management-cards').innerHTML=cards.map(([label,value])=>`<div class="management-card"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('');
+ $('management-info').textContent=`${rows.length} rota(s) no filtro · ${complete.length} com cálculo financeiro completo · ${incomplete} pendente(s). Indicadores financeiros consideram apenas cálculos completos; valores estimados, não recebimentos.`;
+ const byMonth=new Map();for(const r of complete){const m=r.date.slice(0,7);if(!byMonth.has(m))byMonth.set(m,{month:m,revenue:0,cost:0,margin:0});const a=byMonth.get(m);a.revenue+=Number(r.revenue);a.cost+=Number(r.total);a.margin+=Number(r.margin);}
+ const months=[...byMonth.values()].sort((a,b)=>a.month.localeCompare(b.month));const max=Math.max(1,...months.map(x=>x.revenue));
+ $('management-chart').innerHTML=months.length?months.map(x=>`<div class="management-chart-row"><span>${esc(x.month.slice(5)+'/'+x.month.slice(0,4))}</span><div class="management-bar-track"><div class="management-bar" style="width:${Math.max(0,x.revenue/max*100)}%"></div></div><span>${esc(managementMoney(x.revenue))}</span></div>`).join(''):'<p class="muted">Sem dados financeiros completos para o período.</p>';
+ const ranked=[...complete].sort((a,b)=>a.margin-b.margin).slice(0,30);
+ $('management-risk').innerHTML=table(['Plano','Data rota','Cidade','Motorista','Receita bruta','Custo agregado','Margem'],ranked.map(r=>[r.plan,billingBR(r.date),r.city||'—',r.driver||'—',managementMoney(r.revenue),managementMoney(r.total),managementMoney(r.margin)]));
+ $('management-risk').querySelectorAll('tbody tr').forEach((tr,i)=>{if(ranked[i].margin<0)tr.classList.add('management-negative');});
+}
+for(const id of ['management-from','management-to','management-driver','management-profile','management-city'])$(id).addEventListener('change',renderManagement);
+$('management-refresh').onclick=()=>loadManagement().catch(e=>message(e.message,true));
+$('management-clear').onclick=()=>{for(const id of ['management-from','management-to','management-driver','management-profile','management-city'])$(id).value='';renderManagement();};
 $('billing-filter').onclick=()=>{billingPage=0;loadBilling().catch(e=>message(e.message,true));};
 $('billing-clear').onclick=()=>{for(const id of ['billing-driver','billing-year','billing-month','billing-fortnight','billing-profile','billing-margin','billing-payment-status'])$(id).value='';billingPage=0;loadBilling().catch(e=>message(e.message,true));};
 $('billing-refresh').onclick=()=>loadBilling().catch(e=>message(e.message,true));
