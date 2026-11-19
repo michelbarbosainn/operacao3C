@@ -1679,13 +1679,50 @@ function renderManagement(){
  const cards=[['Rotas no período',rows.length.toLocaleString('pt-BR')],['Receita bruta',managementMoney(revenue)],['Receita após ICMS',managementMoney(net)],['Frete + pedágio + adicional',managementMoney(cost)],['Margem estimada',managementMoney(margin)],['Margem sobre receita líquida',net?managementPct(margin/net*100):'—'],['Rotas com margem negativa',neg.length.toLocaleString('pt-BR')],['Rotas sem cálculo completo',incomplete.toLocaleString('pt-BR')]];
  $('management-cards').innerHTML=cards.map(([label,value])=>`<div class="management-card"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('');
  $('management-info').textContent=`${rows.length} rota(s) no filtro · ${complete.length} com cálculo financeiro completo · ${incomplete} pendente(s). Indicadores financeiros consideram apenas cálculos completos; valores estimados, não recebimentos.`;
- const byMonth=new Map();for(const r of complete){const m=r.date.slice(0,7);if(!byMonth.has(m))byMonth.set(m,{month:m,revenue:0,cost:0,margin:0});const a=byMonth.get(m);a.revenue+=Number(r.revenue);a.cost+=Number(r.total);a.margin+=Number(r.margin);}
- const months=[...byMonth.values()].sort((a,b)=>a.month.localeCompare(b.month));const max=Math.max(1,...months.map(x=>x.revenue));
- $('management-chart').innerHTML=months.length?months.map(x=>`<div class="management-chart-row"><span>${esc(x.month.slice(5)+'/'+x.month.slice(0,4))}</span><div class="management-bar-track"><div class="management-bar" style="width:${Math.max(0,x.revenue/max*100)}%"></div></div><span>${esc(managementMoney(x.revenue))}</span></div>`).join(''):'<p class="muted">Sem dados financeiros completos para o período.</p>';
- const ranked=[...complete].sort((a,b)=>a.margin-b.margin).slice(0,30);
- $('management-risk').innerHTML=table(['Plano','Data rota','Cidade','Motorista','Receita bruta','Custo agregado','Margem'],ranked.map(r=>[r.plan,billingBR(r.date),r.city||'—',r.driver||'—',managementMoney(r.revenue),managementMoney(r.total),managementMoney(r.margin)]));
- $('management-risk').querySelectorAll('tbody tr').forEach((tr,i)=>{if(ranked[i].margin<0)tr.classList.add('management-negative');});
+ const metric=$('management-rank-metric').value;
+ const minRoutes=Math.max(1,Math.min(1000,Number($('management-min-routes').value)||1));
+ const norm=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase().replace(/\s+/g,' ');
+ const ranking=(id,getKey,limit=0,reverse=false)=>{
+  const groups=new Map();
+  for(const r of complete){const key=getKey(r);if(!key)continue;
+   if(!groups.has(key))groups.set(key,{key,margin:0,net:0,revenue:0,cost:0,routes:0});
+   const g=groups.get(key);g.margin+=Number(r.margin);g.revenue+=Number(r.revenue);g.net+=Number(r.revenue)-Number(r.icms);g.cost+=Number(r.total);g.routes++;
+  }
+  const arr=[...groups.values()].filter(g=>g.routes>=minRoutes).map(g=>({...g,pct:g.net?100*g.margin/g.net:null}));
+  arr.sort((x,y)=>{const av=metric==='percent'?(x.pct??-Infinity):x.margin,bv=metric==='percent'?(y.pct??-Infinity):y.margin;return (reverse?av-bv:bv-av)||y.routes-x.routes||x.key.localeCompare(y.key,'pt-BR');});
+  const out=limit?arr.slice(0,limit):arr;
+  const holder=$(id);
+  if(!out.length){holder.innerHTML='<p class="muted">Nenhum grupo com dados completos e volume mínimo neste período.</p>';return;}
+  holder.innerHTML=table(['#','Grupo','Rotas','Receita líquida','Margem R$','Margem %'],out.map((g,i)=>[String(i+1),g.key,String(g.routes),managementMoney(g.net),managementMoney(g.margin),g.pct===null?'—':managementPct(g.pct)]));
+  holder.querySelectorAll('tbody tr').forEach((tr,i)=>{if(out[i].margin<0)tr.classList.add('management-negative');});
+ };
+ ranking('management-rank-drivers',r=>r.driver||'Sem motorista');
+ ranking('management-rank-cities-best',r=>r.city&&r.city!=='—'?r.city:'',10);
+ ranking('management-rank-cities-worst',r=>r.city&&r.city!=='—'?r.city:'',10,true);
+ ranking('management-rank-profiles',r=>r.profile||'Perfil não identificado');
+ let unmatched=0;
+ ranking('management-rank-meso',r=>{const k=norm(r.city);if(!k||k==='—')return '';const found=managementMesoMap.get(k);if(!found)unmatched++;return found||'';});
+ $('management-meso-info').textContent=`Mesorregiões IBGE: ${managementMesoMap.size} municípios mapeados no arquivo CSV · ${unmatched} rota(s) sem correspondência (não atribuídas). A operação 3 Corações desta tela é de SP; confira a UF do arquivo.`;
+ ranking('management-rank-combinations',r=>r.city&&r.city!=='—'?(r.profile||'Sem perfil')+' × '+r.city:'',20);
+
 }
+// Mesorregiões exigem tabela oficial; não inferir pela grafia da cidade.
+let managementMesoMap=new Map();
+$('management-meso-file').addEventListener('change',async e=>{
+ const file=e.target.files?.[0];if(!file)return;
+ try{
+  const txt=await file.text();const lines=txt.replace(/^\uFEFF/,'').split(/\r?\n/).filter(x=>x.trim());
+  const sep=(lines[0].match(/;/g)||[]).length>=(lines[0].match(/,/g)||[]).length?';':',';
+  const parse=line=>{const out=[];let cell='',quoted=false;for(let i=0;i<line.length;i++){const c=line[i];if(c==='"'){if(quoted&&line[i+1]==='"'){cell+='"';i++;}else quoted=!quoted;}else if(c===sep&&!quoted){out.push(cell.trim());cell='';}else cell+=c;}out.push(cell.trim());return out;};
+  const normalize=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase().replace(/\s+/g,' ');
+  const cols=parse(lines[0]).map(normalize);const col=name=>cols.indexOf(normalize(name));
+  const ci=col('cidade'),ui=col('uf'),mi=col('mesorregiao');
+  if(ci<0||ui<0||mi<0)throw Error('CSV deve conter as colunas cidade, uf e mesorregiao.');
+  const map=new Map();for(const line of lines.slice(1)){const row=parse(line);if(normalize(row[ui])!=='SP')continue;const city=normalize(row[ci]),meso=String(row[mi]||'').trim();if(city&&meso){if(map.has(city)&&map.get(city)!==meso)throw Error('Cidade duplicada com mesorregiões divergentes: '+city);map.set(city,meso);}}
+  if(!map.size)throw Error('Nenhum município de SP identificado no CSV.');managementMesoMap=map;renderManagement();
+ }catch(err){message('Mesorregiões: '+err.message,true);}
+});
+for(const id of ['management-rank-metric','management-min-routes'])$(id).addEventListener('change',renderManagement);
 for(const id of ['management-from','management-to','management-driver','management-profile','management-city'])$(id).addEventListener('change',renderManagement);
 $('management-refresh').onclick=()=>loadManagement().catch(e=>message(e.message,true));
 $('management-clear').onclick=()=>{for(const id of ['management-from','management-to','management-driver','management-profile','management-city'])$(id).value='';renderManagement();};
