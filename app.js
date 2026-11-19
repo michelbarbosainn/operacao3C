@@ -852,6 +852,18 @@ async function openPlanInvoices(r){
   body.querySelectorAll('.occ-nf').forEach(c=>c.onchange=update);
  }catch(e){message(e.message,true);}
 }
+// V13.69: cópia individual a qualquer momento na Gestão de Ocorrências.
+async function copyManagedOccurrence(occId, route, fallback){
+ const plan=String(route?.plan_number||fallback?.plan_number||'').trim();
+ if(!plan)throw Error('Plano não identificado para esta ocorrência.');
+ const records=await rpc('pcd_v9_list_occurrences',{p_plan:plan});
+ const occurrence=(Array.isArray(records)?records:[]).find(o=>Number(o.id??o.occurrence_id)===Number(occId));
+ if(!occurrence)throw Error('Não foi possível consultar os detalhes desta ocorrência.');
+ const matched=(Array.isArray(v13Filtered)?v13Filtered:[]).find(r=>String(r.plan_number)===plan);
+ const fullRoute={...fallback,...route,...matched,plan_number:plan};
+ // Os detalhes completos são obtidos no servidor, não das células resumidas da tabela.
+ await copySacWhatsapp(sacWaText(occurrence,fullRoute));
+}
 async function manageOccurrence(occId,route){
  try{
   const [history,files]=await Promise.all([rpc('pcd_v92_history',{p_occurrence_id:occId}),rpc('pcd_v92_attachments_for_occurrence',{p_occurrence_id:occId})]);
@@ -870,6 +882,10 @@ async function manageOccurrence(occId,route){
   <h3>Encerramento</h3><label>Resultado final</label><select id="occ-close-result"><option value="">Selecione...</option><option>ENTREGUE</option><option>ENTREGUE PARCIAL</option><option>DEVOLUÇÃO TOTAL</option><option>REENTREGA</option><option>DEVOLUÇÃO PARCIAL</option></select><label>Senha de autorização 3 Corações</label><input id="occ-close-code" placeholder="Obrigatória para parcial ou devolução"><label>Observação de encerramento</label><textarea id="occ-close-note" rows="2"></textarea><button id="occ-close-btn" class="small" ${history.status==='ENCERRADA'?'disabled':''}>Encerrar ocorrência</button>${history.closing_result?`<p class="note">Encerrada: ${esc(history.closing_result)}</p>`:''}<div class="occ-modal-footer"><button type="button" class="secondary" id="occ-footer-close">Fechar</button></div></div>`;
   modal('Gestão da ocorrência',`OC-${String(occId).padStart(6,'0')} · Plano ${route.plan_number}`,html,async()=>{});
   $('modal-save').classList.add('hidden');
+  const copyBtn=sacWaButton('Copiar esta ocorrência para WhatsApp',()=>copyManagedOccurrence(occId,route));
+  copyBtn.classList.add('sac-wa-manage');
+  copyBtn.textContent='◉ Copiar para WhatsApp';
+  const footer=$('occ-footer-close');footer?.parentElement?.prepend(copyBtn);
   $('occ-footer-close').onclick=()=>{$('modalbg').classList.add('hidden');};
   const selected=()=>[...document.querySelectorAll('.occ-attach-select:checked')].map(e=>Number(e.value));
   $('occ-upload-btn').onclick=async()=>{
@@ -986,6 +1002,8 @@ async function loadOccurrences(){
   const b=document.createElement('span');b.className='badge '+(o.status==='ENCERRADA'?'oc-closed':o.status==='ABERTA'?'oc-open':o.status==='CANCELADA'?'oc-cancelled':'oc-draft');b.textContent=o.status;s.append(b);
   const email=document.createElement('span');email.className='badge '+(o.email_status==='ENVIADO'?'ok':o.email_status==='ERRO'?'bad':'warn');email.textContent=o.email_status||'SEM ENVIO';e.append(email);
   const actions=tr.lastElementChild,manage=document.createElement('button');manage.className='small';manage.textContent='Gerenciar';manage.onclick=()=>manageOccurrence(Number(o.id),{plan_number:o.plan_number,city:o.city});actions.append(manage);
+  const wa=sacWaButton('Copiar esta ocorrência para WhatsApp',()=>copyManagedOccurrence(Number(o.id),{plan_number:o.plan_number,city:o.city},{customer_code:o.customer_code,driver_name:o.driver_name,delivery_count:o.delivery_count}));
+  wa.classList.add('sac-wa-manage-list');actions.append(wa);
   if(['PENDENTE','ERRO'].includes(o.email_status)&&o.pending_queue_id){const retry=document.createElement('button');retry.className='small secondary';retry.style.marginLeft='6px';retry.textContent='Processar envio pendente';retry.onclick=async()=>{retry.disabled=true;try{await processExistingQueue(Number(o.pending_queue_id));await loadOccurrences();}catch(err){message(err.message,true);retry.disabled=false;}};actions.append(retry);}
  });
  $('occ-page').textContent=(data.total||0)+' ocorrência(s) · página '+(pages.occurrences+1);

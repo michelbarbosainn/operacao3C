@@ -561,3 +561,6 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 .occ-customer summary strong{flex:0 1 auto}
 .occ-customer summary small{margin-left:auto}
 @media(max-width:740px){.occ-customer summary .sac-wa-customer{margin-left:6px}}
+
+/* V13.69: copiar individualmente na gestão e na lista. */
+.sac-wa-manage{margin-right:8px;padding:6px 10px}.sac-wa-manage-list{margin-left:6px}
