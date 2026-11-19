@@ -1472,7 +1472,55 @@ $('payment-print').onclick=async()=>{
  const filename='INNOVA_'+(paymentMode==='ADVANCE'?'ADIANTAMENTO':'QUITACAO')+'_'+driver.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9]+/g,'_')+'_'+$('payment-date').value+'.pdf';
  doc.save(filename);
 };
-$('payment-confirm').onclick=async()=>{const selected=[...document.querySelectorAll('#payment-rows .pay-check:checked')];const date=$('payment-date').value;if(!date){$('payment-error').textContent='Informe a data do pagamento.';return;}if(!selected.length){$('payment-error').textContent='Selecione ao menos uma rota.';return;}const items=[];for(const el of selected){const r=paymentCandidates.find(x=>payKey(x)===el.dataset.id);const amount=Number(document.querySelector(`#payment-rows .pay-amount[data-id="${el.dataset.id}"]`).value);const state=payRowState(r);if(!Number.isFinite(amount)||amount<=0||amount>state.balance+0.001){$('payment-error').textContent='Valor inválido ou superior ao saldo da rota '+r.plan;return;}if(paymentMode==='SETTLEMENT'&&Math.abs(amount-state.balance)>0.009){$('payment-error').textContent='Quitação exige o pagamento integral do saldo. Para valor parcial, utilize Adiantamento.';return;}items.push({route_id:Number(r.routeId),plan:r.plan,route_date:r.date,driver:r.driver,amount,total_due:state.due,kind:paymentMode});}if(!confirm(`Confirmar ${items.length} pagamento(s) de ${paymentMode==='ADVANCE'?'adiantamento':'quitação'} em ${billingBR(date)}? Esta operação grava os pagamentos no banco.`))return;const btn=$('payment-confirm');btn.disabled=true;$('payment-error').textContent='';try{await rpc('pcd_payment_confirm',{p_items:items,p_paid_on:date});await payLoadRecords();$('payment-modal').classList.add('hidden');await loadBilling();message('Pagamentos registrados com sucesso.');}catch(e){$('payment-error').textContent=e.message;}finally{btn.disabled=false;}};
+// V13.65: encaminhamento financeiro. Não executa pcd_payment_confirm.
+$('payment-confirm').onclick=async()=>{
+ const selected=[...document.querySelectorAll('#payment-rows .pay-check:checked')];
+ const date=$('payment-date').value;
+ const error=$('payment-error');error.textContent='';
+ if(!date||!selected.length){error.textContent='Informe a data prevista e selecione ao menos uma rota.';return;}
+ const items=[];
+ for(const el of selected){
+  const r=paymentCandidates.find(x=>payKey(x)===el.dataset.id);
+  if(!r){error.textContent='Rota não encontrada. Atualize o faturamento.';return;}
+  const amount=Number(document.querySelector(`#payment-rows .pay-amount[data-id="${el.dataset.id}"]`)?.value);
+  const state=payRowState(r);
+  if(!Number.isFinite(amount)||amount<=0||state.balance==null||amount>state.balance+0.001){error.textContent='Valor inválido ou superior ao saldo da rota '+r.plan;return;}
+  items.push({route_id:Number(r.routeId),plan:r.plan,route_date:r.date,driver:r.driver,amount:Math.round(amount*100)/100,total_due:state.due});
+ }
+ if(!confirm(`Enviar ${items.length} rota(s) de ${$('payment-driver').value} para Contas a Pagar? Isso NÃO registra pagamento.`))return;
+ const btn=$('payment-confirm');btn.disabled=true;
+ try{
+  const res=await rpc('pcd_finance_request_create',{p_kind:paymentMode,p_expected_on:date,p_items:items});
+  $('payment-modal').classList.add('hidden');
+  message('Solicitação nº '+res.id+' enviada para Contas a Pagar. Nenhum pagamento foi efetuado.');
+ }catch(e){error.textContent=e.message;}finally{btn.disabled=false;}
+};
+async function payQueueOpen(){
+ $('pay-queue-modal').classList.remove('hidden');$('pay-queue-error').textContent='';
+ const root=$('pay-queue-table');root.textContent='Carregando solicitações…';
+ try{
+  const data=await rpc('pcd_finance_request_list');root.replaceChildren();
+  if(!data?.length){root.textContent='Nenhuma solicitação cadastrada.';return;}
+  const t=document.createElement('table');t.className='payment-table';
+  t.innerHTML='<thead><tr><th>Nº</th><th>Motorista</th><th>Tipo</th><th>Previsto</th><th>Rotas</th><th>Valor</th><th>Situação</th><th>Ação</th></tr></thead>';
+  const body=document.createElement('tbody');
+  for(const req of data){
+   const tr=document.createElement('tr');
+   const values=[req.id,req.driver_name,req.kind==='ADVANCE'?'Adiantamento':'Fechamento',billingBR(req.expected_on),req.route_count,payCurrency(req.total_amount),req.status==='PENDING'?'Aguardando pagamento':'Cancelada'];
+   for(const v of values){const td=document.createElement('td');td.textContent=String(v??'');tr.append(td);}
+   const td=document.createElement('td');
+   if(req.status==='PENDING'){
+    const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent='Cancelar';
+    b.onclick=async()=>{if(!confirm('Cancelar solicitação nº '+req.id+'?'))return;b.disabled=true;try{await rpc('pcd_finance_request_cancel',{p_request_id:Number(req.id)});await payQueueOpen();}catch(e){$('pay-queue-error').textContent=e.message;b.disabled=false;}};
+    td.append(b);
+   }else td.textContent='—';
+   tr.append(td);body.append(tr);
+  }
+  t.append(body);root.append(t);
+ }catch(e){root.textContent='';$('pay-queue-error').textContent=e.message+' · Execute primeiro o SQL da V13.65.';}
+}
+$('pay-queue-open').onclick=payQueueOpen;
+$('pay-queue-close').onclick=()=>$('pay-queue-modal').classList.add('hidden');
 async function loadBilling(){requireFinanceOwner();
  await Promise.all([financeGetParams(),billingGetCosts(),billingLoadAdditions()]);
  const search='',date=null; // Filtros financeiros aplicados após consolidação.
