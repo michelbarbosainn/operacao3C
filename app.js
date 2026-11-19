@@ -374,7 +374,7 @@ async function loadRoutes(which){
    btn.onclick=()=>openComplementPopup(btn,r.plan_number,full==='—'?'':full,r.id,which);
    complementCell.append(btn);
   }
-  if(which==='sac'){const plan=document.createElement('button');plan.className='plan-link';plan.textContent=r.plan_number;plan.onclick=()=>openPlanInvoices(r);tr.children[0].textContent='';tr.children[0].append(plan);}
+  if(which==='sac'){const plan=document.createElement('button');plan.className='plan-link';plan.textContent=r.plan_number;plan.onclick=()=>openPlanInvoices(r);tr.children[0].textContent='';tr.children[0].append(plan,sacWaButton('Copiar resumo das ocorrências deste plano',async()=>{const plans=linkedOccurrencePlans(r);const lists=await Promise.all(plans.map(p=>rpc('pcd_v9_list_occurrences',{p_plan:p})));const occs=lists.flatMap((arr,i)=>(arr||[]).map(o=>({...o,origin_plan:plans[i]})));if(!occs.length)throw Error('Não há ocorrências registradas neste plano.');let performance='Não informado';try{const gm=await rpc('pcd_gm_v1344_get',{p_route_ids:[Number(r.id)]});const rec=(gm||[])[0],done=rec?.manual_completed??rec?.auto_completed,total=Number(r.delivery_count)||0;if(done!=null&&total)performance=`${done}/${total} (${Math.round(done/total*100)}%)`;}catch{}await copySacWhatsapp('*INNOVA | RESUMO DO PLANO '+r.plan_number+'*\n\n'+occs.map((o,i)=>'*Ocorrência '+(i+1)+'*\n'+sacWaText(o,r,performance)).join('\n\n────────\n\n'));}));}
   const dateCell=tr.children[which==='routes'?2:3],dateButton=document.createElement('button');dateButton.className='driver-inline';dateButton.textContent=brDate(r.route_date);dateButton.title='Reprogramar com justificativa';dateButton.disabled=!r.is_active;dateButton.onclick=()=>openReschedule(r);dateCell.textContent='';dateCell.append(dateButton);
   const statusCell=tr.children[which==='routes'?12:13],pill=document.createElement('span'),status=routeDisplayStatus(r);pill.className='route-pill '+(status==='PROGRAMADO'?'programmed':status==='EMPLACAR'?'toassign':status==='NÃO EMBARCOU'?'notboarded':'other');pill.textContent=status;statusCell.textContent='';statusCell.append(pill);
   if(which==='routes'){
@@ -603,6 +603,8 @@ $('gm-import-file').onchange=async e=>{
    return {plan_number:plan,gm_route_date:`${m[3]}-${m[2]}-${m[1]}`,execution_date:execDate,auto_completed:count,gm_finished:!!ended&&ended!=='-',gm_started:started,source_line:i+2};
   }).filter(Boolean);
   if(!parsed.length)throw Error('Nenhuma rota encontrada no CSV.');
+  let performance='Não informado';
+  try{const gm=await rpc('pcd_gm_v1344_get',{p_route_ids:[Number(r.id)]});const rec=(gm||[])[0];const done=rec?.manual_completed??rec?.auto_completed;const total=Number(r.delivery_count)||0;if(done!=null&&total>0)performance=`${done}/${total} (${Math.round(100*Number(done)/total)}%)`;}catch(e){console.warn('Performance WhatsApp não disponível',e);}
   const groups=new Map();
   for(const rec of parsed){const key=rec.plan_number+'|'+(rec.execution_date||'SEM_EXECUCAO');
    if(!groups.has(key))groups.set(key,[]);groups.get(key).push(rec);
@@ -739,6 +741,19 @@ function linkedOccurrencePlans(r){
  const candidates=raw.match(/(?<!\d)\d{9,12}(?!\d)/g)||[];
  return [main,...new Set(candidates.filter(x=>x!==main))];
 }
+// SAC WhatsApp V13.66: copia localmente; nunca envia mensagem automaticamente.
+async function copySacWhatsapp(text){
+ try{await navigator.clipboard.writeText(text);message('Resumo copiado. Cole na conversa da 3 Corações.');}
+ catch(e){const area=document.createElement('textarea');area.value=text;area.style.position='fixed';area.style.opacity='0';document.body.append(area);area.select();const ok=document.execCommand('copy');area.remove();if(!ok)throw Error('Não foi possível copiar; verifique a permissão de área de transferência.');message('Resumo copiado. Cole no WhatsApp.');}
+}
+function sacWaText(o,route,performance){
+ const nfs=(o.invoices||[]).map(x=>x.number||x.nf||x.invoice_number).filter(Boolean).join(', ')||'Não informado';
+ const date=o.created_at?new Date(o.created_at).toLocaleString('pt-BR'):'Não informado';
+ const count=Number(route.delivery_count)||0;
+ const fields=[['NF',nfs],['Plano',o.origin_plan||o.plan_number||route.plan_number],['Código do cliente',o.customer_code||'Não informado'],['Motivo',o.reason||'Não informado'],['Descrição',o.description||'Não informado'],['Cidade',o.city||route.city||'Não informado'],['Motorista',route.driver_name||'Não informado'],['Quantidade de entregas do plano',count||'Não informado'],['Performance',performance],['Data/hora de abertura',date]];
+ return '*INNOVA | OCORRÊNCIA OPERACIONAL*\n\n'+fields.map(([k,v])=>'*'+k+':* '+String(v)).join('\n');
+}
+function sacWaButton(title,onclick){const b=document.createElement('button');b.type='button';b.className='sac-wa-copy';b.textContent='◉';b.title=title;b.setAttribute('aria-label',title);b.onclick=async e=>{e.preventDefault();e.stopPropagation();b.disabled=true;try{await onclick();}catch(err){message(err.message||String(err),true);}finally{b.disabled=false;}};return b;}
 async function openPlanInvoices(r){
  try{
   const plans=linkedOccurrencePlans(r);
@@ -770,9 +785,21 @@ async function openPlanInvoices(r){
    const nfs=(o.invoices||[]).map(x=>x.number).join(', ');
    html+=`<div class="occ-history"><b>OC-${new Date(o.created_at).getFullYear()}-${String(o.id).padStart(6,'0')}</b> · <span class="occ-status">${esc(o.status)}</span><div>${esc(o.customer_name)} · ${esc(o.city)} · ${esc(o.reason)} · Plano ${esc(o.origin_plan)}</div><small>NF(s): ${esc(nfs)} · ${new Date(o.created_at).toLocaleString('pt-BR')}</small><p>${esc(o.description)}</p><div class="occ-actions"><button class="small occ-manage" data-occ-id="${Number(o.id)}">Gerenciar / Anexos / Envio / Encerramento</button></div></div>`;
   }
+  // Resumo por plano e por ocorrência: usar somente ocorrências já registradas.
+  const waGroup=existing.filter(o=>String(o.origin_plan)===String(r.plan_number));
   modal('Notas fiscais e ocorrências',`Plano ${r.plan_number}${plans.length>1?' · Complemento(s): '+plans.slice(1).join(', '):''} · ${r.city||'—'} · ${r.driver_name||'Motorista não escalado'}`,html,async()=>{});
   $('modal-save').classList.add('hidden');
   const body=$('modal-body');
+  const waHeader=sacWaButton('Copiar resumo das ocorrências do plano para WhatsApp',async()=>{
+   if(!waGroup.length)throw Error('Não há ocorrências registradas para este plano.');
+   await copySacWhatsapp('*INNOVA | RESUMO DO PLANO '+r.plan_number+'*\n\n'+waGroup.map((o,i)=>'*Ocorrência '+(i+1)+'*\n'+sacWaText(o,r,performance)).join('\n\n────────\n\n'));
+  });
+  const header=document.querySelector('.modal-header, .modal-title, .modal-head');
+  if(header)header.append(waHeader);else body.prepend(waHeader);
+  body.querySelectorAll('.occ-manage').forEach(b=>{
+   const occ=existing.find(o=>Number(o.id)===Number(b.dataset.occId));if(!occ)return;
+   b.insertAdjacentElement('afterend',sacWaButton('Copiar esta ocorrência para WhatsApp',()=>copySacWhatsapp(sacWaText(occ,r,performance))));
+  });
   const createButton=$('occ-create-send');
   if(createButton)createButton.onclick=async()=>{
    let createdId=null;
