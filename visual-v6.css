@@ -552,3 +552,6 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 
 /* SAC: atalho compacto de cópia para WhatsApp */
 .sac-wa-copy{display:inline-flex;align-items:center;justify-content:center;margin-left:5px;padding:2px 6px;border:1px solid #b8e3d1;border-radius:6px;background:#eefaf3;color:#168553;font-size:14px;line-height:1.4;cursor:pointer;vertical-align:middle;min-width:25px}.sac-wa-copy:hover{background:#daf5e6}.sac-wa-copy:disabled{opacity:.5;cursor:wait}
+
+/* V13.67: WhatsApp somente na linha de cada cliente com ocorrência */
+.occ-customer summary .sac-wa-customer{margin-left:12px;flex-shrink:0;background:#e9f9ef;color:#168553;border-color:#a9d8c1;position:relative;z-index:2}

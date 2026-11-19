@@ -374,7 +374,7 @@ async function loadRoutes(which){
    btn.onclick=()=>openComplementPopup(btn,r.plan_number,full==='—'?'':full,r.id,which);
    complementCell.append(btn);
   }
-  if(which==='sac'){const plan=document.createElement('button');plan.className='plan-link';plan.textContent=r.plan_number;plan.onclick=()=>openPlanInvoices(r);tr.children[0].textContent='';tr.children[0].append(plan,sacWaButton('Copiar resumo das ocorrências deste plano',async()=>{const plans=linkedOccurrencePlans(r);const lists=await Promise.all(plans.map(p=>rpc('pcd_v9_list_occurrences',{p_plan:p})));const occs=lists.flatMap((arr,i)=>(arr||[]).map(o=>({...o,origin_plan:plans[i]})));if(!occs.length)throw Error('Não há ocorrências registradas neste plano.');let performance='Não informado';try{const gm=await rpc('pcd_gm_v1344_get',{p_route_ids:[Number(r.id)]});const rec=(gm||[])[0],done=rec?.manual_completed??rec?.auto_completed,total=Number(r.delivery_count)||0;if(done!=null&&total)performance=`${done}/${total} (${Math.round(done/total*100)}%)`;}catch{}await copySacWhatsapp('*INNOVA | RESUMO DO PLANO '+r.plan_number+'*\n\n'+occs.map((o,i)=>'*Ocorrência '+(i+1)+'*\n'+sacWaText(o,r,performance)).join('\n\n────────\n\n'));}));}
+  if(which==='sac'){const plan=document.createElement('button');plan.className='plan-link';plan.textContent=r.plan_number;plan.onclick=()=>openPlanInvoices(r);tr.children[0].textContent='';tr.children[0].append(plan);}
   const dateCell=tr.children[which==='routes'?2:3],dateButton=document.createElement('button');dateButton.className='driver-inline';dateButton.textContent=brDate(r.route_date);dateButton.title='Reprogramar com justificativa';dateButton.disabled=!r.is_active;dateButton.onclick=()=>openReschedule(r);dateCell.textContent='';dateCell.append(dateButton);
   const statusCell=tr.children[which==='routes'?12:13],pill=document.createElement('span'),status=routeDisplayStatus(r);pill.className='route-pill '+(status==='PROGRAMADO'?'programmed':status==='EMPLACAR'?'toassign':status==='NÃO EMBARCOU'?'notboarded':'other');pill.textContent=status;statusCell.textContent='';statusCell.append(pill);
   if(which==='routes'){
@@ -770,9 +770,10 @@ async function openPlanInvoices(r){
   const brWeight=n=>n==null?'—':Number(n).toLocaleString('pt-BR',{maximumFractionDigits:3})+' kg';
   let html=`<div class="occ-stats"><span><b>${invoices.length}</b> NFs</span><span><b>${groups.size}</b> destinatários</span><span><b>${existing.length}</b> ocorrências registradas</span></div>`;
   if(!invoices.length)html+='<p class="note">Nenhuma nota vinculada ao plano. Importe as NFs e confira Ordem de Frete = PLANO.</p>';
+  const groupOccKeys=[];
   for(const [key,notes] of groups){
-   const [originPlan,code]=key.split('|');const name=notes[0].customer_name||'';const city=notes[0].city||'—';const customerOcc=existing.filter(o=>String(o.customer_code)===code&&String(o.origin_plan)===originPlan);const marker=customerOcc.length?(customerOcc.some(o=>o.status!=='ENCERRADA')?'🔴 ':'🟢 '):'';
-   html+=`<details class="occ-customer"><summary><strong>${marker}${esc(name||'Cliente não informado')} · Loja ${esc(code||'sem código')} · ${originPlan===plans[0]?'Principal':'Complementar'} ${esc(originPlan)}</strong><small>${esc(code)} · ${esc(city)} · ${notes.length} NF(s) · ${brWeight(notes.reduce((sum,x)=>sum+Number(x.gross_weight||0),0))}</small></summary><div class="scroll"><table class="occ-table"><thead><tr><th><input type="checkbox" class="occ-select-all" aria-label="Selecionar notas do destinatário"></th><th>NF</th><th>Cód. cliente</th><th>Cliente</th><th>Cidade</th><th>Peso</th><th>Valor</th></tr></thead><tbody>`;
+   const [originPlan,code]=key.split('|');const name=notes[0].customer_name||'';const city=notes[0].city||'—';const customerOcc=existing.filter(o=>String(o.customer_code)===code&&String(o.origin_plan)===originPlan);const marker=customerOcc.length?(customerOcc.some(o=>o.status!=='ENCERRADA')?'🔴 ':'🟢 '):'';if(customerOcc.length)groupOccKeys.push({key,customerOcc});
+   html+=`<details class="occ-customer" data-occ-group="${esc(key)}"><summary><strong>${marker}${esc(name||'Cliente não informado')} · Loja ${esc(code||'sem código')} · ${originPlan===plans[0]?'Principal':'Complementar'} ${esc(originPlan)}</strong><small>${esc(code)} · ${esc(city)} · ${notes.length} NF(s) · ${brWeight(notes.reduce((sum,x)=>sum+Number(x.gross_weight||0),0))}</small></summary><div class="scroll"><table class="occ-table"><thead><tr><th><input type="checkbox" class="occ-select-all" aria-label="Selecionar notas do destinatário"></th><th>NF</th><th>Cód. cliente</th><th>Cliente</th><th>Cidade</th><th>Peso</th><th>Valor</th></tr></thead><tbody>`;
    for(const nf of notes)html+=`<tr><td><input type="checkbox" class="occ-nf" data-id="${Number(nf.id)}" data-customer="${esc(code)}" data-plan="${esc(originPlan)}"></td><td>${esc(nf.invoice_number)}</td><td>${esc(nf.customer_code||'—')}</td><td>${esc(nf.customer_name)}</td><td>${esc(nf.city)}</td><td>${brWeight(nf.gross_weight)}</td><td>${brMoney(nf.invoice_value)}</td></tr>`;
    html+='</tbody></table></div></details>';
   }
@@ -785,21 +786,26 @@ async function openPlanInvoices(r){
    const nfs=(o.invoices||[]).map(x=>x.number).join(', ');
    html+=`<div class="occ-history"><b>OC-${new Date(o.created_at).getFullYear()}-${String(o.id).padStart(6,'0')}</b> · <span class="occ-status">${esc(o.status)}</span><div>${esc(o.customer_name)} · ${esc(o.city)} · ${esc(o.reason)} · Plano ${esc(o.origin_plan)}</div><small>NF(s): ${esc(nfs)} · ${new Date(o.created_at).toLocaleString('pt-BR')}</small><p>${esc(o.description)}</p><div class="occ-actions"><button class="small occ-manage" data-occ-id="${Number(o.id)}">Gerenciar / Anexos / Envio / Encerramento</button></div></div>`;
   }
-  // Resumo por plano e por ocorrência: usar somente ocorrências já registradas.
-  const waGroup=existing.filter(o=>String(o.origin_plan)===String(r.plan_number));
   modal('Notas fiscais e ocorrências',`Plano ${r.plan_number}${plans.length>1?' · Complemento(s): '+plans.slice(1).join(', '):''} · ${r.city||'—'} · ${r.driver_name||'Motorista não escalado'}`,html,async()=>{});
   $('modal-save').classList.add('hidden');
   const body=$('modal-body');
-  const waHeader=sacWaButton('Copiar resumo das ocorrências do plano para WhatsApp',async()=>{
-   if(!waGroup.length)throw Error('Não há ocorrências registradas para este plano.');
-   await copySacWhatsapp('*INNOVA | RESUMO DO PLANO '+r.plan_number+'*\n\n'+waGroup.map((o,i)=>'*Ocorrência '+(i+1)+'*\n'+sacWaText(o,r,performance)).join('\n\n────────\n\n'));
-  });
-  const header=document.querySelector('.modal-header, .modal-title, .modal-head');
-  if(header)header.append(waHeader);else body.prepend(waHeader);
-  body.querySelectorAll('.occ-manage').forEach(b=>{
-   const occ=existing.find(o=>Number(o.id)===Number(b.dataset.occId));if(!occ)return;
-   b.insertAdjacentElement('afterend',sacWaButton('Copiar esta ocorrência para WhatsApp',()=>copySacWhatsapp(sacWaText(occ,r,performance))));
-  });
+  // Um botão exclusivamente para cada loja com ocorrência, sem resumo geral.
+  let performance='Não informado';
+  try{const gm=await rpc('pcd_gm_v1344_get',{p_route_ids:[Number(r.id)]});const rec=(gm||[])[0];const done=rec?.manual_completed??rec?.auto_completed;const total=Number(r.delivery_count)||0;if(done!=null&&total>0)performance=`${done}/${total} (${Math.round(100*Number(done)/total)}%)`;}catch(e){console.warn('Performance WhatsApp não disponível',e);}
+  for(const group of groupOccKeys){
+   const details=[...body.querySelectorAll('details.occ-customer')].find(el=>el.dataset.occGroup===group.key);
+   const summary=details?.querySelector('summary');if(!summary)continue;
+   const wa=sacWaButton('Copiar ocorrência desta loja para WhatsApp',async()=>{
+    if(group.customerOcc.length===1){await copySacWhatsapp(sacWaText(group.customerOcc[0],r,performance));return;}
+    const choices=group.customerOcc.map((o,i)=>`${i+1} - ${o.reason||'Ocorrência'} (OC-${o.id})`).join('\n');
+    const selected=prompt('Esta loja possui mais de uma ocorrência. Escolha o número para copiar:\n'+choices);
+    if(selected===null)return;
+    const index=Number(selected)-1;
+    if(!Number.isInteger(index)||index<0||index>=group.customerOcc.length)throw Error('Selecione um número válido.');
+    await copySacWhatsapp(sacWaText(group.customerOcc[index],r,performance));
+   });
+   wa.classList.add('sac-wa-customer');summary.append(wa);
+  }
   const createButton=$('occ-create-send');
   if(createButton)createButton.onclick=async()=>{
    let createdId=null;
