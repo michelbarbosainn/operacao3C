@@ -1082,13 +1082,25 @@ $('gmail-history').onclick=async()=>{try{gmailBusySet(true);gmailStatus('Consult
 
 
 // INNOVA OC Faturamento V1.1 — consulta notas fiscais de TODOS os destinos por plano.
-// Complementos são simulações locais, sem persistência ou aprovação financeira.
+// Adicionais de frete persistidos no Supabase; complemento de rota permanece separado.
 let billingPage=0,billingTotal=0;
 const billingMoney=n=>n==null?'—':Number(n).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 function billingNorm(v){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();}
 function billingBR(v){if(!v)return '—';const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1]}`:String(v);}
 function billingDateISO(v){const x=String(v||'').trim();if(!x)return null;const m=x.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);if(!m)throw Error('Informe a data no formato DD/MM/AAAA.');const iso=`${m[3]}-${m[2]}-${m[1]}`;const d=new Date(iso+'T12:00:00Z');if(isNaN(d)||d.getUTCDate()!==Number(m[1])||d.getUTCMonth()+1!==Number(m[2]))throw Error('Data inválida.');return iso;}
 const billingComplements=new Map();
+async function billingLoadAdditions(){
+ requireFinanceOwner();
+ const {data,error}=await db.from('pcd_billing_additions').select('route_id,amount,reason');
+ if(error)throw Error('Não foi possível carregar adicionais de frete: '+error.message+'. Execute a migração SQL da V13.59.');
+ billingComplements.clear();
+ for(const item of data||[])billingComplements.set(String(item.route_id),{amount:Number(item.amount||0),reason:item.reason||''});
+}
+async function billingSaveAddition(routeId,amount,reason){
+ requireFinanceOwner();
+ const {error}=await db.from('pcd_billing_additions').upsert({route_id:Number(routeId),amount,reason:amount>0?reason:null},{onConflict:'route_id'});
+ if(error)throw Error('Falha ao salvar adicional: '+error.message);
+}
 const billingNumber=n=>n==null||n===''?null:Number(n);
 const billingKg=n=>n==null||n===''?'—':Number(n).toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg';
 async function billingDriverProfiles(date){try{const list=await rpc('pcd_v8_drivers',{p_date:date||new Date().toISOString().slice(0,10)});return Array.isArray(list)?list:[];}catch(e){console.warn('Perfil embarcado não disponível:',e);return [];}}
@@ -1258,7 +1270,7 @@ function billingSummaryRender(rows){
  const root=$('billing-stats');if(!root)return;
  const fields=[
   ['Rotas','count','int'],['Entregas','deliveries','int'],['Peso transportado','weight','kg'],
-  ['Valor mercadoria','goods','money'],['Frete a pagar','freight','money'],['Pedágios','toll','money'],['Complementos','comp','money'],
+  ['Valor mercadoria','goods','money'],['Frete a pagar','freight','money'],['Pedágios','toll','money'],['Adicionais','comp','money'],
   ['Total a pagar','total','money'],['Desp. administrativas','adminCost','money'],['Desp. operacionais','operatingCost','money'],['Receita bruta','revenue','money'],
   ['ICMS','icms','money'],
   ['Averbação','aver','money'],['Emissão CT-e','cteCost','money'],
@@ -1454,7 +1466,7 @@ $('payment-print').onclick=async()=>{
 };
 $('payment-confirm').onclick=async()=>{const selected=[...document.querySelectorAll('#payment-rows .pay-check:checked')];const date=$('payment-date').value;if(!date){$('payment-error').textContent='Informe a data do pagamento.';return;}if(!selected.length){$('payment-error').textContent='Selecione ao menos uma rota.';return;}const items=[];for(const el of selected){const r=paymentCandidates.find(x=>payKey(x)===el.dataset.id);const amount=Number(document.querySelector(`#payment-rows .pay-amount[data-id="${el.dataset.id}"]`).value);const state=payRowState(r);if(!Number.isFinite(amount)||amount<=0||amount>state.balance+0.001){$('payment-error').textContent='Valor inválido ou superior ao saldo da rota '+r.plan;return;}if(paymentMode==='SETTLEMENT'&&Math.abs(amount-state.balance)>0.009){$('payment-error').textContent='Quitação exige o pagamento integral do saldo. Para valor parcial, utilize Adiantamento.';return;}items.push({route_id:Number(r.routeId),plan:r.plan,route_date:r.date,driver:r.driver,amount,total_due:state.due,kind:paymentMode});}if(!confirm(`Confirmar ${items.length} pagamento(s) de ${paymentMode==='ADVANCE'?'adiantamento':'quitação'} em ${billingBR(date)}? Esta operação grava os pagamentos no banco.`))return;const btn=$('payment-confirm');btn.disabled=true;$('payment-error').textContent='';try{await rpc('pcd_payment_confirm',{p_items:items,p_paid_on:date});await payLoadRecords();$('payment-modal').classList.add('hidden');await loadBilling();message('Pagamentos registrados com sucesso.');}catch(e){$('payment-error').textContent=e.message;}finally{btn.disabled=false;}};
 async function loadBilling(){requireFinanceOwner();
- await Promise.all([financeGetParams(),billingGetCosts()]);
+ await Promise.all([financeGetParams(),billingGetCosts(),billingLoadAdditions()]);
  const search='',date=null; // Filtros financeiros aplicados após consolidação.
  // Consolidar o conjunto filtrado inteiro, não somente a página visível.
  const allRoutes=[];let routeOffset=0;let expected=0;
@@ -1515,7 +1527,8 @@ async function loadBilling(){requireFinanceOwner();
   const cityTolls=decisive?tollRates.filter(x=>billingNorm(x.city)===billingNorm(decisive.routeCity)):[];
   const toll=cityTolls.length?Number(cityTolls[0].amount)*billingTollMultiplier(prof):null;
   const freight=override?Number(override.amount):payableRate?Number(payableRate.freight_payable):null;
-  let revenue=decisive?.revenue_reference==null?null:Number(decisive.revenue_reference);
+  const revenueBase=decisive?.revenue_reference==null?null:Number(decisive.revenue_reference);
+  let revenue=revenueBase;
   const continuation=continuityByRoute.get(Number(r.id));
   if(continuation?.responsibility==='TRANSPORTADORA')revenue=0;
   const id=String(r.id||plan+'|'+dateKey),comp=billingComplements.get(id)||{amount:0,reason:''};
@@ -1530,7 +1543,9 @@ async function loadBilling(){requireFinanceOwner();
   const cteUnit=billingCostRate('EMISSAO_CTE',dateKey);
   const operatingRate=billingCostRate('DESP_OPER',dateKey);
   const goods=invoiceValues.get(plan)?.sum??null;
-  const icms=revenue==null||icmsRate==null?null:revenue*icmsRate/100;
+  // ICMS por dentro: tabela negociada representa frete líquido de ICMS.
+  if(revenue!==null&&icmsRate!==null){if(icmsRate<0||icmsRate>=100)throw Error('Alíquota ICMS inválida para '+plan);revenue=Math.round(revenue/(1-icmsRate/100)*100)/100;}
+  const icms=revenue==null||icmsRate==null?null:Math.round(revenue*icmsRate)/100;
   const aver=continuation?0:(goods==null||averRate==null?null:goods*averRate/100);
   const otherTaxes=revenue==null||otherTaxRate==null?null:revenue*otherTaxRate/100;
   const totalTaxes=icms==null||otherTaxes==null?null:icms+otherTaxes;
@@ -1562,10 +1577,10 @@ async function loadBilling(){requireFinanceOwner();
  billingPage=Math.min(Math.max(0,billingPage),Math.max(0,Math.ceil(filteredResult.length/50)-1));
  const pageStart=billingPage*50;const visibleResult=filteredResult.slice(pageStart,pageStart+50);const visibleMetadata=filteredMeta.slice(pageStart,pageStart+50);
  for(let i=0;i<filteredResult.length;i++){filteredResult[i][15]=billingMoney(payRowState(filteredSummary[i]).paid);}
- $('billing-table').innerHTML=table(['Plano','Data rota','Qtd. cidades','Cidade determinante','Faixa','Peso','Valor mercadoria','Qtd. entregas','Motorista','Placa','Perfil embarcado','Frete a pagar','Pedágio','Complemento','Total adiantamento','Adiantamento pago','Total a pagar','Receita bruta','ICMS','Demais tributos (provisão)','Total impostos','Averbação','Desp. operacionais','Desp. administrativas','Emissão CT-e','Margem R$ (estimada)','Margem % (estimada)'],visibleResult);
+ $('billing-table').innerHTML=table(['Plano','Data rota','Qtd. cidades','Cidade determinante','Faixa','Peso','Valor mercadoria','Qtd. entregas','Motorista','Placa','Perfil embarcado','Frete a pagar','Pedágio','Adicional','Total adiantamento','Adiantamento pago','Total a pagar','Receita bruta','ICMS','Demais tributos (provisão)','Total impostos','Averbação','Desp. operacionais','Desp. administrativas','Emissão CT-e','Margem R$ (estimada)','Margem % (estimada)'],visibleResult);
  $('billing-table').querySelectorAll('tbody tr').forEach((tr,i)=>{const meta=visibleMetadata[i],c=billingComplements.get(meta.id)||{amount:0,reason:''};
-  const amount=document.createElement('input');amount.type='text';amount.inputMode='decimal';amount.autocomplete='off';amount.className='billing-comp-input';amount.value=Number(c.amount)>0?Number(c.amount).toFixed(2).replace('.',','):'';amount.placeholder='0,00';amount.title='Complemento simulado; ainda não gravado no banco';
-  const reason=document.createElement('select');reason.className='billing-reason-input';for(const [value,label] of [['','Selecione o motivo'],...billingReasonOptions.map(x=>[x,x])]){const option=document.createElement('option');option.value=value;option.textContent=label;reason.append(option);}reason.value=billingReasonOptions.includes(c.reason)?c.reason:'';reason.title='Motivo do complemento';reason.disabled=!(Number(c.amount)>0);
+  const amount=document.createElement('input');amount.type='text';amount.inputMode='decimal';amount.autocomplete='off';amount.className='billing-comp-input';amount.value=Number(c.amount)>0?Number(c.amount).toFixed(2).replace('.',','):'';amount.placeholder='0,00';amount.title='Adicional de frete gravado no Supabase após Salvar';
+  const reason=document.createElement('select');reason.className='billing-reason-input';for(const [value,label] of [['','Selecione o motivo'],...billingReasonOptions.map(x=>[x,x])]){const option=document.createElement('option');option.value=value;option.textContent=label;reason.append(option);}reason.value=billingReasonOptions.includes(c.reason)?c.reason:'';reason.title='Motivo do adicional';reason.disabled=!(Number(c.amount)>0);
   // V13.56: guardar referências ANTES de inserir STATUS no início da linha.
   // Índices numéricos deixam de ser válidos após insertBefore().
   const advanceCell=tr.children[14], totalPayCell=tr.children[16], marginCell=tr.children[25], marginPctCell=tr.children[26];
@@ -1577,14 +1592,28 @@ async function loadBilling(){requireFinanceOwner();
   };
   // V13.55: valor só é aplicado após confirmação explícita.
   // Não gravar em change/blur: evita commits parciais e confusão com valores calculados.
-  const saveComp=document.createElement('button');saveComp.type='button';saveComp.className='billing-comp-save';saveComp.textContent='Salvar';saveComp.title='Confirmar valor do complemento';
+  const saveComp=document.createElement('button');saveComp.type='button';saveComp.className='billing-comp-save';saveComp.textContent='Salvar';saveComp.title='Gravar adicional de frete no Supabase';
   const cancelComp=document.createElement('button');cancelComp.type='button';cancelComp.className='billing-comp-cancel';cancelComp.textContent='Cancelar';
   const restoreComp=()=>{const saved=Number((billingComplements.get(meta.id)||{amount:0}).amount||0);amount.value=saved>0?saved.toFixed(2).replace('.',','):'';amount.setCustomValidity('');};
-  const commitComp=()=>{update();if(!amount.validationMessage){const saved=Number((billingComplements.get(meta.id)||{amount:0}).amount||0);amount.value=saved>0?saved.toFixed(2).replace('.',','):'';}};
-  saveComp.addEventListener('click',commitComp);
-  cancelComp.addEventListener('click',restoreComp);
-  amount.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();commitComp();}if(e.key==='Escape'){e.preventDefault();restoreComp();}});
-  reason.addEventListener('change',update);
+  const commitComp=async()=>{
+   const raw=amount.value.trim();
+   const cleaned=raw.replace(/\s/g,'').replace(/^R\$/i,'');
+   if(cleaned&&!/^\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?$|^\d+(?:[.,]\d{1,2})?$/.test(cleaned)){message('Valor inválido. Exemplo: 540,00',true);return;}
+   const value=cleaned?Number(cleaned.includes(',')?cleaned.replace(/\./g,'').replace(',','.'):cleaned):0;
+   if(!Number.isFinite(value)||value<0||value>1000000){message('Valor do adicional inválido.',true);return;}
+   if(value>0&&!reason.value){message('Selecione o motivo do adicional.',true);reason.focus();return;}
+   saveComp.disabled=true;saveComp.textContent='Salvando...';
+   try{
+    await billingSaveAddition(meta.id,value,reason.value);
+    billingComplements.set(meta.id,{amount:value,reason:value>0?reason.value:''});
+    update();amount.value=value>0?value.toFixed(2).replace('.',','):'';
+    message('Adicional do plano '+meta.plan+' salvo no Supabase.');
+   }catch(e){message(e.message,true);restoreComp();reason.value=(billingComplements.get(meta.id)||{}).reason||'';}
+   finally{saveComp.disabled=false;saveComp.textContent='Salvar';}
+  };
+  saveComp.addEventListener('click',()=>{void commitComp();});
+  cancelComp.addEventListener('click',()=>{restoreComp();reason.value=(billingComplements.get(meta.id)||{}).reason||'';});
+  amount.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();void commitComp();}if(e.key==='Escape'){e.preventDefault();restoreComp();}});
   tr.children[13].textContent='';const compInline=document.createElement('div');compInline.className='billing-comp-inline';compInline.append(amount,reason,saveComp,cancelComp);tr.children[13].append(compInline);
   if(meta.city){const cell=tr.children[3];cell.textContent='';const cityButton=document.createElement('button');cityButton.type='button';cityButton.className='billing-city-link';cityButton.textContent=meta.city;cityButton.title='Consultar cidades, distâncias e faixas do plano';cityButton.onclick=()=>{document.querySelector('#programming-city-summary').textContent='';billingCityDetails(meta.plan,meta.details);};cell.append(cityButton);}
   if(meta.toll==null&&meta.city){const td=tr.children[12];td.textContent='';const btn=document.createElement('button');btn.type='button';btn.className='billing-register-toll';btn.textContent='+ Cadastrar pedágio';btn.onclick=()=>billingOpenToll(meta.city,meta.plan);td.append(btn);}
