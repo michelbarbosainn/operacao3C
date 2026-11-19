@@ -1661,6 +1661,7 @@ async function loadManagement(){
   const now=today();$('management-from').value=now.slice(0,7)+'-01';$('management-to').value=now;
  }
  renderManagement();
+ void loadManagementIBGE();
 }
 function renderManagement(){
  requireFinanceOwner();
@@ -1702,26 +1703,56 @@ function renderManagement(){
  ranking('management-rank-profiles',r=>r.profile||'Perfil não identificado');
  let unmatched=0;
  ranking('management-rank-meso',r=>{const k=norm(r.city);if(!k||k==='—')return '';const found=managementMesoMap.get(k);if(!found)unmatched++;return found||'';});
- $('management-meso-info').textContent=`Mesorregiões IBGE: ${managementMesoMap.size} municípios mapeados no arquivo CSV · ${unmatched} rota(s) sem correspondência (não atribuídas). A operação 3 Corações desta tela é de SP; confira a UF do arquivo.`;
+ $('management-meso-info').textContent=`Mesorregiões IBGE: ${managementMesoMap.size} municípios mapeados pela base oficial · ${unmatched} rota(s) sem correspondência (não atribuídas). A operação 3 Corações desta tela é de SP; confira a UF do arquivo.`;
  ranking('management-rank-combinations',r=>r.city&&r.city!=='—'?(r.profile||'Sem perfil')+' × '+r.city:'',20);
 
 }
-// Mesorregiões exigem tabela oficial; não inferir pela grafia da cidade.
+// V13.63 — Integração automática da classificação histórica de mesorregiões IBGE.
 let managementMesoMap=new Map();
-$('management-meso-file').addEventListener('change',async e=>{
- const file=e.target.files?.[0];if(!file)return;
- try{
-  const txt=await file.text();const lines=txt.replace(/^\uFEFF/,'').split(/\r?\n/).filter(x=>x.trim());
-  const sep=(lines[0].match(/;/g)||[]).length>=(lines[0].match(/,/g)||[]).length?';':',';
-  const parse=line=>{const out=[];let cell='',quoted=false;for(let i=0;i<line.length;i++){const c=line[i];if(c==='"'){if(quoted&&line[i+1]==='"'){cell+='"';i++;}else quoted=!quoted;}else if(c===sep&&!quoted){out.push(cell.trim());cell='';}else cell+=c;}out.push(cell.trim());return out;};
-  const normalize=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase().replace(/\s+/g,' ');
-  const cols=parse(lines[0]).map(normalize);const col=name=>cols.indexOf(normalize(name));
-  const ci=col('cidade'),ui=col('uf'),mi=col('mesorregiao');
-  if(ci<0||ui<0||mi<0)throw Error('CSV deve conter as colunas cidade, uf e mesorregiao.');
-  const map=new Map();for(const line of lines.slice(1)){const row=parse(line);if(normalize(row[ui])!=='SP')continue;const city=normalize(row[ci]),meso=String(row[mi]||'').trim();if(city&&meso){if(map.has(city)&&map.get(city)!==meso)throw Error('Cidade duplicada com mesorregiões divergentes: '+city);map.set(city,meso);}}
-  if(!map.size)throw Error('Nenhum município de SP identificado no CSV.');managementMesoMap=map;renderManagement();
- }catch(err){message('Mesorregiões: '+err.message,true);}
-});
+let managementIBGELoading=null;
+const managementIBGECacheKey='innova_ibge_sp_mesorregioes_v1';
+function managementIBGENormalize(value){
+ return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase().replace(/\s+/g,' ');
+}
+function managementIBGEParse(items){
+ if(!Array.isArray(items))throw Error('Formato inesperado da resposta do IBGE.');
+ const map=new Map();
+ for(const city of items){
+  const name=managementIBGENormalize(city.nome);
+  const meso=city.microrregiao?.mesorregiao?.nome;
+  const uf=city.microrregiao?.mesorregiao?.UF?.sigla;
+  if(name&&meso&&uf==='SP')map.set(name,meso);
+ }
+ if(map.size<600)throw Error('Base IBGE incompleta: '+map.size+' municípios de SP.');
+ return map;
+}
+async function loadManagementIBGE(){
+ if(managementIBGELoading)return managementIBGELoading;
+ managementIBGELoading=(async()=>{
+  const info=$('management-meso-info');
+  try{
+   const cached=JSON.parse(localStorage.getItem(managementIBGECacheKey)||'null');
+   if(cached?.items){managementMesoMap=managementIBGEParse(cached.items);renderManagement();}
+  }catch(err){console.warn('Cache IBGE indisponível:',err);}
+  if(!managementMesoMap.size)info.textContent='Consultando municípios e mesorregiões na API oficial do IBGE…';
+  try{
+   const controller=new AbortController();
+   const timeout=setTimeout(()=>controller.abort(),15000);
+   let response;
+   try{response=await fetch('https://servicodados.ibge.gov.br/api/v1/localidades/estados/35/municipios',{signal:controller.signal,headers:{Accept:'application/json'}});}
+   finally{clearTimeout(timeout);}
+   if(!response.ok)throw Error('HTTP '+response.status);
+   const items=await response.json();
+   managementMesoMap=managementIBGEParse(items);
+   try{localStorage.setItem(managementIBGECacheKey,JSON.stringify({items,savedAt:new Date().toISOString()}));}catch(_){}
+   renderManagement();
+  }catch(err){
+   if(!managementMesoMap.size)info.textContent='Base IBGE indisponível ('+err.message+'). Clique em Atualizar dados para tentar novamente; as regiões não serão estimadas.';
+   else info.textContent+=' · Fonte: cache local; atualização IBGE indisponível.';
+  }
+ })().finally(()=>{managementIBGELoading=null;});
+ return managementIBGELoading;
+}
 for(const id of ['management-rank-metric','management-min-routes'])$(id).addEventListener('change',renderManagement);
 for(const id of ['management-from','management-to','management-driver','management-profile','management-city'])$(id).addEventListener('change',renderManagement);
 $('management-refresh').onclick=()=>loadManagement().catch(e=>message(e.message,true));
