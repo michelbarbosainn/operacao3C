@@ -750,7 +750,7 @@ function sacWaText(o,route,performance){
  const nfs=(o.invoices||[]).map(x=>x.number||x.nf||x.invoice_number).filter(Boolean).join(', ')||'Não informado';
  const date=o.created_at?new Date(o.created_at).toLocaleString('pt-BR'):'Não informado';
  const count=Number(route.delivery_count)||0;
- const fields=[['NF',nfs],['Plano',o.origin_plan||o.plan_number||route.plan_number],['Código do cliente',o.customer_code||'Não informado'],['Motivo',o.reason||'Não informado'],['Descrição',o.description||'Não informado'],['Cidade',o.city||route.city||'Não informado'],['Motorista',route.driver_name||'Não informado'],['Quantidade de entregas do plano',count||'Não informado'],['Performance',performance],['Data/hora de abertura',date]];
+ const fields=[['NF',nfs],['Plano',o.origin_plan||o.plan_number||route.plan_number],['Código do cliente',o.customer_code||'Não informado'],['Motivo',o.reason||'Não informado'],['Descrição',o.description||'Não informado'],['Cidade',o.city||route.city||'Não informado'],['Motorista',route.driver_name||'Não informado'],['Quantidade de entregas do plano',count||'Não informado'],['Data/hora de abertura',date]];
  return '*INNOVA | OCORRÊNCIA OPERACIONAL*\n\n'+fields.map(([k,v])=>'*'+k+':* '+String(v)).join('\n');
 }
 function sacWaButton(title,onclick){const b=document.createElement('button');b.type='button';b.className='sac-wa-copy';b.textContent='◉';b.title=title;b.setAttribute('aria-label',title);b.onclick=async e=>{e.preventDefault();e.stopPropagation();b.disabled=true;try{await onclick();}catch(err){message(err.message||String(err),true);}finally{b.disabled=false;}};return b;}
@@ -804,7 +804,7 @@ async function openPlanInvoices(r){
     if(!Number.isInteger(index)||index<0||index>=group.customerOcc.length)throw Error('Selecione um número válido.');
     await copySacWhatsapp(sacWaText(group.customerOcc[index],r,performance));
    });
-   wa.classList.add('sac-wa-customer');summary.append(wa);
+   wa.classList.add('sac-wa-customer');summary.querySelector('strong')?.after(wa);
   }
   const createButton=$('occ-create-send');
   if(createButton)createButton.onclick=async()=>{

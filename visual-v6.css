@@ -555,3 +555,9 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 
 /* V13.67: WhatsApp somente na linha de cada cliente com ocorrência */
 .occ-customer summary .sac-wa-customer{margin-left:12px;flex-shrink:0;background:#e9f9ef;color:#168553;border-color:#a9d8c1;position:relative;z-index:2}
+
+/* V13.68: atalho individual imediatamente depois do nome da loja. */
+.occ-customer summary .sac-wa-customer{order:0;margin:0 8px 0 4px;flex-shrink:0}
+.occ-customer summary strong{flex:0 1 auto}
+.occ-customer summary small{margin-left:auto}
+@media(max-width:740px){.occ-customer summary .sac-wa-customer{margin-left:6px}}
