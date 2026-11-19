@@ -741,6 +741,34 @@ function linkedOccurrencePlans(r){
  const candidates=raw.match(/(?<!\d)\d{9,12}(?!\d)/g)||[];
  return [main,...new Set(candidates.filter(x=>x!==main))];
 }
+// SAC: identificacao operacional por NFs quando a 3 Coracoes nao emite novo plano.
+// Somente aceita uma lista curta de numeros de NF, nunca interpreta planos longos.
+function operationalInvoiceNumbers(raw){
+ const value=String(raw??'').trim();
+ if(!/^[\d\s,;\/+-]+$/.test(value))return [];
+ const parts=value.split(/[\s,;\/+-]+/).filter(Boolean);
+ if(!parts.length||parts.length>30||parts.some(x=>x.length<5||x.length>9))return [];
+ return [...new Set(parts.map(x=>x.replace(/^0+/, '')||'0'))];
+}
+async function invoicesForOperationalRoute(r){
+ const numbers=operationalInvoiceNumbers(r.plan_number);
+ if(!numbers.length)return {invoices:[],originalPlans:[],numbers:[]};
+ const candidates=[...new Set(numbers.flatMap(n=>[n,n.padStart(9,'0')]))];
+ const {data,error}=await db.from('pcd_v8_invoices').select('id,invoice_number,plan_number,customer_code,customer_name,city,gross_weight,invoice_value').in('invoice_number',candidates);
+ if(error)throw Error('Nao foi possivel validar as notas da rota: '+error.message);
+ const normalized=(data||[]).filter(n=>numbers.includes(String(n.invoice_number||'').replace(/^0+/, '')||'0'));
+ const found=new Set(normalized.map(n=>String(n.invoice_number).replace(/^0+/, '')||'0'));
+ if(numbers.some(n=>!found.has(n)))throw Error('Vinculo por NFs nao confirmado: uma ou mais notas da identificacao operacional nao foram localizadas. Verifique a importacao antes de abrir ocorrencia.');
+ const unique=new Map();
+ for(const nf of normalized){
+  const key=String(nf.invoice_number).replace(/^0+/, '')||'0';
+  if(unique.has(key)&&String(unique.get(key).plan_number)!==String(nf.plan_number))throw Error('NF '+key+' consta em mais de um plano. Validacao manual necessaria para evitar associacao incorreta.');
+  unique.set(key,nf);
+ }
+ const invoices=[...unique.values()];
+ if(invoices.some(n=>!String(n.plan_number||'').trim()))throw Error('Nota sem plano original: necessario validar antes de registrar ocorrencia.');
+ return {invoices,originalPlans:[...new Set(invoices.map(n=>String(n.plan_number).trim()))],numbers};
+}
 // SAC WhatsApp V13.66: copia localmente; nunca envia mensagem automaticamente.
 async function copySacWhatsapp(text){
  try{await navigator.clipboard.writeText(text);message('Resumo copiado. Cole na conversa da 3 Corações.');}
@@ -756,24 +784,26 @@ function sacWaText(o,route,performance){
 function sacWaButton(title,onclick){const b=document.createElement('button');b.type='button';b.className='sac-wa-copy';b.textContent='◉';b.title=title;b.setAttribute('aria-label',title);b.onclick=async e=>{e.preventDefault();e.stopPropagation();b.disabled=true;try{await onclick();}catch(err){message(err.message||String(err),true);}finally{b.disabled=false;}};return b;}
 async function openPlanInvoices(r){
  try{
-  const plans=linkedOccurrencePlans(r);
+  const operational=operationalInvoiceNumbers(r.plan_number);
+  const byNF=operational.length?await invoicesForOperationalRoute(r):null;
+  const plans=byNF?byNF.originalPlans:linkedOccurrencePlans(r).filter(Boolean);
   const [invoiceSets,reasons,occurrenceSets]=await Promise.all([
    Promise.all(plans.map(p=>rpc('pcd_v8_plan_invoices',{p_plan:p}))),
    rpc('pcd_v9_reasons'),
    Promise.all(plans.map(p=>rpc('pcd_v9_list_occurrences',{p_plan:p})))
   ]);
-  const invoices=invoiceSets.flatMap((set,index)=>(Array.isArray(set)?set:[]).map(nf=>({...nf,plan_number:String(nf.plan_number||plans[index]).trim()})));
+  const invoices=byNF?byNF.invoices:invoiceSets.flatMap((set,index)=>(Array.isArray(set)?set:[]).map(nf=>({...nf,plan_number:String(nf.plan_number||plans[index]).trim()})));
   const existing=occurrenceSets.flatMap((set,index)=>(Array.isArray(set)?set:[]).map(o=>({...o,origin_plan:plans[index]})));
   const groups=new Map();
   for(const nf of invoices){const key=String(nf.plan_number||'').trim()+'|'+String(nf.customer_code||'').trim();if(!groups.has(key))groups.set(key,[]);groups.get(key).push(nf);}
   const brMoney=n=>n==null?'—':Number(n).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
   const brWeight=n=>n==null?'—':Number(n).toLocaleString('pt-BR',{maximumFractionDigits:3})+' kg';
-  let html=`<div class="occ-stats"><span><b>${invoices.length}</b> NFs</span><span><b>${groups.size}</b> destinatários</span><span><b>${existing.length}</b> ocorrências registradas</span></div>`;
+  let html=(byNF?`<div class="note"><b>Identificacao operacional:</b> ${esc(r.plan_number)}<br><b>Plano(s) original(is) das NFs:</b> ${esc(plans.join(', '))}<br><small>Classificacao da viagem: validar historico da INNOVA; a identificacao por NFs nao comprova reentrega.</small></div>`:'')+`<div class="occ-stats"><span><b>${invoices.length}</b> NFs</span><span><b>${groups.size}</b> destinatários</span><span><b>${existing.length}</b> ocorrências registradas</span></div>`;
   if(!invoices.length)html+='<p class="note">Nenhuma nota vinculada ao plano. Importe as NFs e confira Ordem de Frete = PLANO.</p>';
   const groupOccKeys=[];
   for(const [key,notes] of groups){
    const [originPlan,code]=key.split('|');const name=notes[0].customer_name||'';const city=notes[0].city||'—';const customerOcc=existing.filter(o=>String(o.customer_code)===code&&String(o.origin_plan)===originPlan);const marker=customerOcc.length?(customerOcc.some(o=>o.status!=='ENCERRADA')?'🔴 ':'🟢 '):'';if(customerOcc.length)groupOccKeys.push({key,customerOcc});
-   html+=`<details class="occ-customer" data-occ-group="${esc(key)}"><summary><strong>${marker}${esc(name||'Cliente não informado')} · Loja ${esc(code||'sem código')} · ${originPlan===plans[0]?'Principal':'Complementar'} ${esc(originPlan)}</strong><small>${esc(code)} · ${esc(city)} · ${notes.length} NF(s) · ${brWeight(notes.reduce((sum,x)=>sum+Number(x.gross_weight||0),0))}</small></summary><div class="scroll"><table class="occ-table"><thead><tr><th><input type="checkbox" class="occ-select-all" aria-label="Selecionar notas do destinatário"></th><th>NF</th><th>Cód. cliente</th><th>Cliente</th><th>Cidade</th><th>Peso</th><th>Valor</th></tr></thead><tbody>`;
+   html+=`<details class="occ-customer" data-occ-group="${esc(key)}"><summary><strong>${marker}${esc(name||'Cliente não informado')} · Loja ${esc(code||'sem código')} · ${byNF?'Plano original':(originPlan===plans[0]?'Principal':'Complementar')} ${esc(originPlan)}</strong><small>${esc(code)} · ${esc(city)} · ${notes.length} NF(s) · ${brWeight(notes.reduce((sum,x)=>sum+Number(x.gross_weight||0),0))}</small></summary><div class="scroll"><table class="occ-table"><thead><tr><th><input type="checkbox" class="occ-select-all" aria-label="Selecionar notas do destinatário"></th><th>NF</th><th>Cód. cliente</th><th>Cliente</th><th>Cidade</th><th>Peso</th><th>Valor</th></tr></thead><tbody>`;
    for(const nf of notes)html+=`<tr><td><input type="checkbox" class="occ-nf" data-id="${Number(nf.id)}" data-customer="${esc(code)}" data-plan="${esc(originPlan)}"></td><td>${esc(nf.invoice_number)}</td><td>${esc(nf.customer_code||'—')}</td><td>${esc(nf.customer_name)}</td><td>${esc(nf.city)}</td><td>${brWeight(nf.gross_weight)}</td><td>${brMoney(nf.invoice_value)}</td></tr>`;
    html+='</tbody></table></div></details>';
   }
@@ -786,7 +816,7 @@ async function openPlanInvoices(r){
    const nfs=(o.invoices||[]).map(x=>x.number).join(', ');
    html+=`<div class="occ-history"><b>OC-${new Date(o.created_at).getFullYear()}-${String(o.id).padStart(6,'0')}</b> · <span class="occ-status">${esc(o.status)}</span><div>${esc(o.customer_name)} · ${esc(o.city)} · ${esc(o.reason)} · Plano ${esc(o.origin_plan)}</div><small>NF(s): ${esc(nfs)} · ${new Date(o.created_at).toLocaleString('pt-BR')}</small><p>${esc(o.description)}</p><div class="occ-actions"><button class="small occ-manage" data-occ-id="${Number(o.id)}">Gerenciar / Anexos / Envio / Encerramento</button></div></div>`;
   }
-  modal('Notas fiscais e ocorrências',`Plano ${r.plan_number}${plans.length>1?' · Complemento(s): '+plans.slice(1).join(', '):''} · ${r.city||'—'} · ${r.driver_name||'Motorista não escalado'}`,html,async()=>{});
+  modal('Notas fiscais e ocorrências',`${byNF?'Identificacao por NFs '+r.plan_number+' · Plano original '+plans.join(', '):'Plano '+r.plan_number+(plans.length>1?' · Complemento(s): '+plans.slice(1).join(', '):'')} · ${r.city||'—'} · ${r.driver_name||'Motorista não escalado'}`,html,async()=>{});
   $('modal-save').classList.add('hidden');
   const body=$('modal-body');
   // Um botão exclusivamente para cada loja com ocorrência, sem resumo geral.
