@@ -1579,42 +1579,47 @@ async function loadBilling(){requireFinanceOwner();
  for(let i=0;i<filteredResult.length;i++){filteredResult[i][15]=billingMoney(payRowState(filteredSummary[i]).paid);}
  $('billing-table').innerHTML=table(['Plano','Data rota','Qtd. cidades','Cidade determinante','Faixa','Peso','Valor mercadoria','Qtd. entregas','Motorista','Placa','Perfil embarcado','Frete a pagar','Pedágio','Adicional','Total adiantamento','Adiantamento pago','Total a pagar','Receita bruta','ICMS','Demais tributos (provisão)','Total impostos','Averbação','Desp. operacionais','Desp. administrativas','Emissão CT-e','Margem R$ (estimada)','Margem % (estimada)'],visibleResult);
  $('billing-table').querySelectorAll('tbody tr').forEach((tr,i)=>{const meta=visibleMetadata[i],c=billingComplements.get(meta.id)||{amount:0,reason:''};
-  const amount=document.createElement('input');amount.type='text';amount.inputMode='decimal';amount.autocomplete='off';amount.className='billing-comp-input';amount.value=Number(c.amount)>0?Number(c.amount).toFixed(2).replace('.',','):'';amount.placeholder='0,00';amount.title='Adicional de frete gravado no Supabase após Salvar';
-  const reason=document.createElement('select');reason.className='billing-reason-input';for(const [value,label] of [['','Selecione o motivo'],...billingReasonOptions.map(x=>[x,x])]){const option=document.createElement('option');option.value=value;option.textContent=label;reason.append(option);}reason.value=billingReasonOptions.includes(c.reason)?c.reason:'';reason.title='Motivo do adicional';reason.disabled=!(Number(c.amount)>0);
+  const amount=document.createElement('input');amount.type='text';amount.inputMode='decimal';amount.autocomplete='off';amount.className='billing-comp-input';amount.value=Number(c.amount)>0?Number(c.amount).toFixed(2).replace('.',','):'';amount.placeholder='0,00';amount.title='Edite e pressione Enter ou saia da célula para salvar; apague para excluir';
+  const defaultReason='ADICIONAL DE FRETE';
+  const reason=document.createElement('select');reason.className='billing-reason-input';
+  for(const [value,label] of [[defaultReason,'Motivo padrão'],...billingReasonOptions.map(x=>[x,x])]){const option=document.createElement('option');option.value=value;option.textContent=label;reason.append(option);}
+  reason.value=billingReasonOptions.includes(c.reason)?c.reason:defaultReason;
+  reason.title='Motivo opcional: se não escolhido, será utilizado ADICIONAL DE FRETE';reason.disabled=!(Number(c.amount)>0);
   // V13.56: guardar referências ANTES de inserir STATUS no início da linha.
   // Índices numéricos deixam de ser válidos após insertBefore().
   const advanceCell=tr.children[14], totalPayCell=tr.children[16], marginCell=tr.children[25], marginPctCell=tr.children[26];
-  const update=()=>{const raw=amount.value.trim();const normalized=raw.replace(/\s/g,'').replace(/^R\$/i,'').replace(/\./g,'').replace(',','.');const val=raw===''?0:Number(normalized);if(!Number.isFinite(val)||val<0||!/^\d*(?:[.,]\d{0,2})?$/.test(raw.replace(/\s/g,'').replace(/^R\$/i,''))){amount.setCustomValidity('Informe valor válido (ex.: 540,00)');amount.reportValidity();return;}amount.setCustomValidity('');reason.disabled=val<=0;if(val<=0)reason.value='';reason.required=val>0;reason.classList.toggle('billing-reason-required',val>0&&!reason.value);billingComplements.set(meta.id,{amount:val,reason:reason.value.trim()});const sr=summaryRows.find(x=>x.id===meta.id);if(sr){sr.comp=val;sr.advance=sr.freight==null||sr.toll==null?null:(sr.freight+val)*0.5+sr.toll;sr.total=sr.freight==null||sr.toll==null?null:sr.freight+sr.toll+val;sr.margin=sr.revenue==null||sr.total==null||sr.totalTaxes==null||sr.aver==null||sr.adminCost==null||sr.operatingCost==null||sr.cteCost==null?null:sr.revenue-sr.total-sr.totalTaxes-sr.aver-sr.adminCost-sr.operatingCost-sr.cteCost;billingSummaryRender(filteredSummary);}advanceCell.textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney((meta.freight+val)*0.5+meta.toll);totalPayCell.textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney(meta.freight+meta.toll+val);
+  const update=()=>{const raw=amount.value.trim();const normalized=raw.replace(/\s/g,'').replace(/^R\$/i,'').replace(/\./g,'').replace(',','.');const val=raw===''?0:Number(normalized);if(!Number.isFinite(val)||val<0||!/^\d*(?:[.,]\d{0,2})?$/.test(raw.replace(/\s/g,'').replace(/^R\$/i,''))){amount.setCustomValidity('Informe valor válido (ex.: 540,00)');amount.reportValidity();return;}amount.setCustomValidity('');reason.disabled=val<=0;if(val<=0)reason.value='';const sr=summaryRows.find(x=>x.id===meta.id);if(sr){sr.comp=val;sr.advance=sr.freight==null||sr.toll==null?null:(sr.freight+val)*0.5+sr.toll;sr.total=sr.freight==null||sr.toll==null?null:sr.freight+sr.toll+val;sr.margin=sr.revenue==null||sr.total==null||sr.totalTaxes==null||sr.aver==null||sr.adminCost==null||sr.operatingCost==null||sr.cteCost==null?null:sr.revenue-sr.total-sr.totalTaxes-sr.aver-sr.adminCost-sr.operatingCost-sr.cteCost;billingSummaryRender(filteredSummary);}advanceCell.textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney((meta.freight+val)*0.5+meta.toll);totalPayCell.textContent=meta.freight==null||meta.toll==null?'Pendente':billingMoney(meta.freight+meta.toll+val);
    const totalCost=meta.freight==null||meta.toll==null?null:meta.freight+meta.toll+val;
    const margin=meta.revenue==null||totalCost==null||meta.totalTaxes==null||meta.aver==null||meta.adminCost==null||meta.operatingCost==null||meta.cteCost==null?null:meta.revenue-totalCost-meta.totalTaxes-meta.aver-meta.adminCost-meta.operatingCost-meta.cteCost;
    marginCell.textContent=billingMoney(margin);marginPctCell.textContent=margin==null||!meta.revenue?'Pendente':(margin/meta.revenue*100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
    billingStyleMargin(tr,margin,meta.revenue);
   };
-  // V13.55: valor só é aplicado após confirmação explícita.
-  // Não gravar em change/blur: evita commits parciais e confusão com valores calculados.
-  const saveComp=document.createElement('button');saveComp.type='button';saveComp.className='billing-comp-save';saveComp.textContent='Salvar';saveComp.title='Gravar adicional de frete no Supabase';
-  const cancelComp=document.createElement('button');cancelComp.type='button';cancelComp.className='billing-comp-cancel';cancelComp.textContent='Cancelar';
-  const restoreComp=()=>{const saved=Number((billingComplements.get(meta.id)||{amount:0}).amount||0);amount.value=saved>0?saved.toFixed(2).replace('.',','):'';amount.setCustomValidity('');};
+  let busy=false;
+  const restoreComp=()=>{const saved=billingComplements.get(meta.id)||{amount:0,reason:''};amount.value=Number(saved.amount)>0?Number(saved.amount).toFixed(2).replace('.',','):'';reason.value=billingReasonOptions.includes(saved.reason)?saved.reason:defaultReason;reason.disabled=!(Number(saved.amount)>0);amount.setCustomValidity('');};
   const commitComp=async()=>{
-   const raw=amount.value.trim();
-   const cleaned=raw.replace(/\s/g,'').replace(/^R\$/i,'');
-   if(cleaned&&!/^\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?$|^\d+(?:[.,]\d{1,2})?$/.test(cleaned)){message('Valor inválido. Exemplo: 540,00',true);return;}
+   if(busy)return;
+   const cleaned=amount.value.trim().replace(/\s/g,'').replace(/^R\$/i,'');
+   if(cleaned&&!/^(?:\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)$/.test(cleaned)){message('Valor inválido. Exemplo: 540,00',true);restoreComp();return;}
    const value=cleaned?Number(cleaned.includes(',')?cleaned.replace(/\./g,'').replace(',','.'):cleaned):0;
-   if(!Number.isFinite(value)||value<0||value>1000000){message('Valor do adicional inválido.',true);return;}
-   if(value>0&&!reason.value){message('Selecione o motivo do adicional.',true);reason.focus();return;}
-   saveComp.disabled=true;saveComp.textContent='Salvando...';
+   if(!Number.isFinite(value)||value<0||value>1000000){message('Valor do adicional inválido.',true);restoreComp();return;}
+   const selectedReason=value>0?(reason.value||defaultReason):'';
+   const previous=billingComplements.get(meta.id)||{amount:0,reason:''};
+   if(Math.abs(Number(previous.amount||0)-value)<0.005&&(value===0||(previous.reason||defaultReason)===selectedReason)){amount.value=value>0?value.toFixed(2).replace('.',','):'';return;}
+   busy=true;amount.disabled=true;reason.disabled=true;amount.classList.add('billing-saving');
    try{
-    await billingSaveAddition(meta.id,value,reason.value);
-    billingComplements.set(meta.id,{amount:value,reason:value>0?reason.value:''});
-    update();amount.value=value>0?value.toFixed(2).replace('.',','):'';
-    message('Adicional do plano '+meta.plan+' salvo no Supabase.');
-   }catch(e){message(e.message,true);restoreComp();reason.value=(billingComplements.get(meta.id)||{}).reason||'';}
-   finally{saveComp.disabled=false;saveComp.textContent='Salvar';}
+    await billingSaveAddition(meta.id,value,selectedReason);
+    billingComplements.set(meta.id,{amount:value,reason:selectedReason});
+    amount.value=value>0?value.toFixed(2).replace('.',','):'';
+    reason.value=billingReasonOptions.includes(selectedReason)?selectedReason:defaultReason;
+    update();
+    amount.title='Adicional salvo no Supabase';
+   }catch(e){message(e.message,true);restoreComp();}
+   finally{busy=false;amount.disabled=false;reason.disabled=value<=0;amount.classList.remove('billing-saving');}
   };
-  saveComp.addEventListener('click',()=>{void commitComp();});
-  cancelComp.addEventListener('click',()=>{restoreComp();reason.value=(billingComplements.get(meta.id)||{}).reason||'';});
-  amount.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();void commitComp();}if(e.key==='Escape'){e.preventDefault();restoreComp();}});
-  tr.children[13].textContent='';const compInline=document.createElement('div');compInline.className='billing-comp-inline';compInline.append(amount,reason,saveComp,cancelComp);tr.children[13].append(compInline);
+  amount.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();amount.blur();}if(e.key==='Escape'){e.preventDefault();restoreComp();amount.blur();}});
+  amount.addEventListener('blur',()=>{void commitComp();});
+  reason.addEventListener('change',()=>{void commitComp();});
+  tr.children[13].textContent='';const compInline=document.createElement('div');compInline.className='billing-comp-inline';compInline.append(amount,reason);tr.children[13].append(compInline);
   if(meta.city){const cell=tr.children[3];cell.textContent='';const cityButton=document.createElement('button');cityButton.type='button';cityButton.className='billing-city-link';cityButton.textContent=meta.city;cityButton.title='Consultar cidades, distâncias e faixas do plano';cityButton.onclick=()=>{document.querySelector('#programming-city-summary').textContent='';billingCityDetails(meta.plan,meta.details);};cell.append(cityButton);}
   if(meta.toll==null&&meta.city){const td=tr.children[12];td.textContent='';const btn=document.createElement('button');btn.type='button';btn.className='billing-register-toll';btn.textContent='+ Cadastrar pedágio';btn.onclick=()=>billingOpenToll(meta.city,meta.plan);td.append(btn);}
   const initialMargin=meta.revenue==null||meta.freight==null||meta.toll==null||meta.totalTaxes==null||meta.aver==null||meta.adminCost==null||meta.operatingCost==null||meta.cteCost==null?null:meta.revenue-meta.freight-meta.toll-Number(c.amount||0)-meta.totalTaxes-meta.aver-meta.adminCost-meta.operatingCost-meta.cteCost;

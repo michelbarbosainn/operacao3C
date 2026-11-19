@@ -507,3 +507,9 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 #billing-table .billing-comp-inline .billing-comp-save,#billing-table .billing-comp-inline .billing-comp-cancel{font-size:10px;padding:5px 7px;min-height:27px;border-radius:5px;white-space:nowrap}
 #billing-table .billing-comp-inline .billing-comp-save{background:#e7f2ff;color:#164c7d;border:1px solid #bfd8f1}
 #billing-table .billing-comp-inline .billing-comp-cancel{background:#f5f6f8;color:#546478;border:1px solid #dce2e8}
+
+/* V13.60 — Adicional com gravação automática, sem botões na tabela */
+#billing-table .billing-comp-inline{gap:5px}
+#billing-table .billing-comp-inline .billing-comp-input{width:85px;min-width:85px}
+#billing-table .billing-comp-inline .billing-reason-input{width:112px;min-width:112px}
+#billing-table .billing-comp-inline .billing-saving{opacity:.55;background:#eef5ff}
