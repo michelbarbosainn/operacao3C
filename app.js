@@ -1003,7 +1003,7 @@ async function loadOccurrences(){
   const email=document.createElement('span');email.className='badge '+(o.email_status==='ENVIADO'?'ok':o.email_status==='ERRO'?'bad':'warn');email.textContent=o.email_status||'SEM ENVIO';e.append(email);
   const actions=tr.lastElementChild,manage=document.createElement('button');manage.className='small';manage.textContent='Gerenciar';manage.onclick=()=>manageOccurrence(Number(o.id),{plan_number:o.plan_number,city:o.city});actions.append(manage);
   const wa=sacWaButton('Copiar esta ocorrência para WhatsApp',()=>copyManagedOccurrence(Number(o.id),{plan_number:o.plan_number,city:o.city},{customer_code:o.customer_code,driver_name:o.driver_name,delivery_count:o.delivery_count}));
-  wa.classList.add('sac-wa-manage-list');actions.append(wa);
+  wa.classList.add('sac-wa-manage-list');wa.textContent='◉';actions.append(wa);
   if(['PENDENTE','ERRO'].includes(o.email_status)&&o.pending_queue_id){const retry=document.createElement('button');retry.className='small secondary';retry.style.marginLeft='6px';retry.textContent='Processar envio pendente';retry.onclick=async()=>{retry.disabled=true;try{await processExistingQueue(Number(o.pending_queue_id));await loadOccurrences();}catch(err){message(err.message,true);retry.disabled=false;}};actions.append(retry);}
  });
  $('occ-page').textContent=(data.total||0)+' ocorrência(s) · página '+(pages.occurrences+1);
