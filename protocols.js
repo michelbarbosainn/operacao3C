@@ -65,7 +65,7 @@ async function addInvoice(){
 }
 async function findPriorProtocols(nf){
  const q=normalizeNF(nf);
- const {data,error}=await db.from('pcd_protocol_items').select('invoice_number,protocol_id,pcd_protocols(protocol_number)').in('invoice_number',[...new Set([nf,normalizeNF(nf),String(nf).padStart(9,'0'))]).limit(500);
+ const {data,error}=await db.from('pcd_protocol_items').select('invoice_number,protocol_id,pcd_protocols(protocol_number)').in('invoice_number',[...new Set([nf,normalizeNF(nf),String(nf).padStart(9,'0')])]).limit(500);
  if(error){console.warn('Histórico de NF indisponível',error.message);return [];}
  return [...new Set((data||[]).filter(x=>normalizeNF(x.invoice_number)===q&&x.protocol_id!==currentId).map(x=>x.pcd_protocols?.protocol_number).filter(Boolean))];
 }
