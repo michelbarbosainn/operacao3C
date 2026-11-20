@@ -48,12 +48,19 @@ async function nextProtocolNumber(){
 }
 async function newProtocol(){currentId=null;isExisting=false;rows=[];$('pr-number').value='';$('pr-date').value=new Date().toLocaleDateString('en-CA');render();await nextProtocolNumber();$('pr-invoice').focus();}
 function validate(){readGrid();const num=$('pr-number').value.trim();if(!/^INNOVA[0-9]+$/i.test(num))throw Error('Informe um protocolo no padrão INNOVA944.');if(!dateISO($('pr-date').value))throw Error('Informe a data do protocolo.');if(!rows.length)throw Error('Adicione pelo menos uma nota.');if(rows.length>MAX_ITEMS)throw Error('Limite de 50 canhotos por protocolo.');return {number:num.toUpperCase(),date:$('pr-date').value,items:rows.map((r,i)=>{if(!r.invoice_number||!r.customer_code||!r.plan_number)throw Error(`Linha ${i+1}: NF, cliente e ordem de frete são obrigatórios.`);return {invoice_number:r.invoice_number,invoiced_on:dateISO(r.invoiced_on),customer_code:r.customer_code,customer_name:r.customer_name||null,plan_number:r.plan_number,city:r.city||null,gross_weight:number(r.gross_weight),invoice_value:number(r.invoice_value),line_no:i+1};})};}
-async function save(){try{if(isExisting)throw Error('Protocolo fechado: utilize retificação, não o salvamento.');const v=validate();if(!confirm(`Salvar ${v.items.length} nota(s) no protocolo ${v.number}?`))return;const {data,error}=await db.rpc('pcd_protocol_save_auto',{p_date:v.date,p_items:v.items});if(error)throw error;currentId=data.id;$('pr-number').value=data.number;isExisting=true;render();info(`Protocolo ${data.number} salvo com ${v.items.length} nota(s).`);await loadHistory();}catch(e){info('Não foi possível salvar: '+e.message+' Confira se o SQL de instalação foi executado.');}}
+async function save(){try{if(isExisting)throw Error('Protocolo fechado: utilize retificação, não o salvamento.');const v=validate();if(!confirm(`Salvar ${v.items.length} nota(s) no protocolo ${v.number}?`))return;const {data,error}=await db.rpc('pcd_protocol_save_auto',{p_date:v.date,p_items:v.items});if(error)throw error;currentId=data.id;$('pr-number').value=data.number;isExisting=true;render();info(`Protocolo ${data.number} salvo com ${v.items.length} nota(s).`);await loadHistory();await showProtocolSummary();}catch(e){info('Não foi possível salvar: '+e.message+' Confira se o SQL de instalação foi executado.');}}
 async function loadHistory(){try{const {data,error}=await db.from('pcd_protocols').select('id,protocol_number,protocol_date,created_at,pcd_protocol_items(id,invoice_number,item_status,added_after_close)').order('created_at',{ascending:false}).limit(300);if(error)throw error;history=data||[];$('pr-total').textContent=history.length.toLocaleString('pt-BR');$('pr-items-total').textContent=history.reduce((a,r)=>a+(r.pcd_protocol_items?.filter(x=>x.item_status!=='INATIVO').length||0),0).toLocaleString('pt-BR');$('pr-revisions-total').textContent=history.reduce((a,r)=>a+(r.pcd_protocol_items?.filter(x=>x.item_status==='INATIVO'||x.added_after_close).length||0),0).toLocaleString('pt-BR');renderHistory();}catch(e){$('pr-history').textContent='Histórico indisponível: '+e.message;}}
-function renderHistory(){const q=$('pr-search').value.trim().toLowerCase().replace(/^0+/,'');const found=history.filter(r=>!q||r.protocol_number.toLowerCase().includes(q)||r.pcd_protocol_items?.some(i=>String(i.invoice_number).replace(/^0+/,'').includes(q)));$('pr-history').innerHTML='<table><thead><tr><th>Protocolo</th><th>Data</th><th>Notas</th><th>Ação</th></tr></thead><tbody>'+found.map(r=>`<tr><td>${esc(r.protocol_number)}</td><td>${esc(dateBR(r.protocol_date))}</td><td>${r.pcd_protocol_items?.filter(x=>x.item_status!=='INATIVO').length||0}</td><td><button class="secondary small" data-open="${r.id}">Abrir</button></td></tr>`).join('')+'</tbody></table>'+(found.length?'':'Nenhum protocolo encontrado.');}
+function renderHistory(){const q=$('pr-search').value.trim().toLowerCase().replace(/^0+/,'');const found=history.filter(r=>!q||r.protocol_number.toLowerCase().includes(q)||r.pcd_protocol_items?.some(i=>String(i.invoice_number).replace(/^0+/,'').includes(q)));$('pr-history').innerHTML='<table><thead><tr><th>Protocolo</th><th>Data</th><th>Notas</th><th>Ação</th></tr></thead><tbody>'+found.map(r=>`<tr><td>${esc(r.protocol_number)}</td><td>${esc(dateBR(r.protocol_date))}</td><td>${r.pcd_protocol_items?.filter(x=>x.item_status!=='INATIVO').length||0}</td><td><button class="secondary small" data-open="${r.id}">Abrir</button> <button class="secondary small" data-pdf="${r.id}">PDF</button> <button class="secondary small" data-csv="${r.id}">CSV</button> <button class="secondary small" data-email="${r.id}">Enviar e-mail</button></td></tr>`).join('')+'</tbody></table>'+(found.length?'':'Nenhum protocolo encontrado.');}
 async function openProtocol(id){try{const {data,error}=await db.from('pcd_protocols').select('id,protocol_number,protocol_date,pcd_protocol_items(*)').eq('id',id).single();if(error)throw error;currentId=data.id;isExisting=true;$('pr-number').value=data.protocol_number;$('pr-date').value=data.protocol_date;rows=(data.pcd_protocol_items||[]).sort((a,b)=>a.line_no-b.line_no).map(r=>({...Object.fromEntries(fields.map(k=>[k,r[k]??''])),id:r.id,item_status:r.item_status,added_after_close:r.added_after_close}));await checkPriorForRows();render();await loadAudit();window.scrollTo({top:0,behavior:'smooth'});}catch(e){info('Erro ao abrir protocolo: '+e.message);}}
 function report(){if(isExisting){return {number:$('pr-number').value.trim(),date:$('pr-date').value,items:rows.filter(r=>r.item_status!=='INATIVO')};}return validate();}
-function pdf(){try{const v=report();const jsPDF=window.jspdf?.jsPDF;if(!jsPDF)throw Error('Biblioteca PDF não carregada.');const doc=new jsPDF({orientation:'landscape'});doc.setFontSize(16);doc.text('INNOVA | Protocolo de Canhotos'+(isExisting&&rows.some(r=>r.item_status==='INATIVO'||r.added_after_close)?' - RETIFICADO':''),14,16);doc.setFontSize(10);doc.text(`Protocolo: ${v.number}    Data: ${dateBR(v.date)}    Quantidade de notas: ${v.items.length}`,14,25);doc.autoTable({startY:32,head:[labels],body:v.items.map(r=>[r.invoice_number,dateBR(r.invoiced_on),r.customer_code,r.customer_name,r.plan_number,r.city,r.gross_weight??'',r.invoice_value??'']),styles:{fontSize:7},headStyles:{fillColor:[0,47,108]}});doc.save(v.number+'.pdf');}catch(e){info('PDF: '+e.message);}}
+async function ensurePdfLibrary(){
+ if(window.jspdf?.jsPDF && typeof window.jspdf.jsPDF.API.autoTable==='function')return;
+ const load=url=>new Promise((resolve,reject)=>{const tag=document.createElement('script');tag.src=url;tag.onload=resolve;tag.onerror=()=>reject(new Error('Falha ao carregar '+url));document.head.appendChild(tag);});
+ if(!window.jspdf?.jsPDF)await load('https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js');
+ if(typeof window.jspdf?.jsPDF?.API?.autoTable!=='function')await load('https://unpkg.com/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js');
+ if(!window.jspdf?.jsPDF || typeof window.jspdf.jsPDF.API.autoTable!=='function')throw Error('Biblioteca de geração de PDF indisponível. Verifique conexão com os servidores de bibliotecas.');
+}
+async function pdf(){try{await ensurePdfLibrary();const v=report();const jsPDF=window.jspdf?.jsPDF;if(!jsPDF)throw Error('Biblioteca PDF indisponível.');const doc=new jsPDF({orientation:'landscape'});doc.setFontSize(16);doc.text('INNOVA | Protocolo de Canhotos'+(isExisting&&rows.some(r=>r.item_status==='INATIVO'||r.added_after_close)?' - RETIFICADO':''),14,16);doc.setFontSize(10);doc.text(`Protocolo: ${v.number}    Data: ${dateBR(v.date)}    Quantidade de notas: ${v.items.length}`,14,25);doc.autoTable({startY:32,margin:{left:9,right:9},head:[labels],body:v.items.map(r=>[r.invoice_number,dateBR(r.invoiced_on),r.customer_code,r.customer_name,r.plan_number,r.city,r.gross_weight??'',r.invoice_value??'']),styles:{fontSize:7,cellPadding:2,overflow:'linebreak'},headStyles:{fillColor:[0,47,108]},didDrawPage:()=>{doc.setFontSize(8);doc.setTextColor(110);doc.text('INNOVA Soluções Logísticas · Documento de protocolo de canhotos',10,202);doc.text('Página '+doc.internal.getNumberOfPages(),270,202);}});doc.save(v.number+'.pdf');}catch(e){info('PDF: '+e.message);}}
 function csv(){try{const v=report();const data=[['Nº Protocolo INNOVA',...labels],...v.items.map(r=>[v.number,r.invoice_number,dateBR(r.invoiced_on),r.customer_code,r.customer_name,r.plan_number,r.city,r.gross_weight??'',r.invoice_value??''])];const content='\uFEFF'+data.map(r=>r.map(x=>'"'+String(x??'').replace(/"/g,'""')+'"').join(';')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type:'text/csv;charset=utf-8'}));a.download=v.number+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}catch(e){info('CSV: '+e.message);}}
 async function addInvoice(){
  const input=$('pr-invoice');const raw=input.value.trim();if(!/^\d+$/.test(raw)){info('Informe somente os dígitos da nota fiscal.');return;}
@@ -165,7 +172,44 @@ $('pr-number').addEventListener('input',()=>{$('pr-current').textContent=$('pr-n
 $('pr-new').onclick=()=>newProtocol();
 $('pr-add').onclick=()=>{readGrid();if(rows.length>=MAX_ITEMS){info('Limite de 50 canhotos por protocolo.');return;}rows.push(Object.fromEntries(fields.map(k=>[k,''])));render();};
 $('pr-save').onclick=save;$('pr-pdf').onclick=pdf;$('pr-csv').onclick=csv;$('pr-refresh').onclick=loadHistory;$('pr-find').onclick=renderHistory;
-$('pr-history').onclick=e=>{const b=e.target.closest('[data-open]');if(b)openProtocol(b.dataset.open);};
+const moneyBR=n=>Number(n||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+function showProtocolSummary(){
+ const active=rows.filter(r=>r.item_status!=='INATIVO');
+ const clients=new Set(active.map(r=>String(r.customer_code||'').trim()).filter(Boolean));
+ const total=active.reduce((sum,r)=>sum+(number(r.invoice_value)||0),0);
+ $('pr-summary-number').textContent=$('pr-number').value;
+ $('pr-summary-count').textContent=String(active.length);
+ $('pr-summary-clients').textContent=String(clients.size);
+ $('pr-summary-value').textContent=moneyBR(total);
+ $('pr-summary-modal').classList.remove('hidden');
+}
+$('pr-summary-close').onclick=()=>$('pr-summary-modal').classList.add('hidden');
+$('pr-summary-pdf').onclick=()=>pdf();
+$('pr-summary-email').onclick=()=>prepareProtocolEmail();
+async function prepareProtocolEmail(){
+ if(!isExisting||!currentId){info('Salve o protocolo antes de preparar o envio.');return;}
+ try{
+  const {data,error}=await db.from('pcd_protocol_recipients').select('email,recipient_type').eq('active',true);
+  if(error)throw error;
+  const to=(data||[]).filter(r=>r.recipient_type!=='CC').map(r=>r.email);
+  const cc=(data||[]).filter(r=>r.recipient_type==='CC').map(r=>r.email);
+  if(!to.length&&!cc.length)throw Error('Não há destinatários ativos cadastrados na guia Protocolos.');
+  const v=report();
+  const subject='INNOVA | Protocolo de Canhotos '+v.number;
+  const body='Prezados,\n\nSegue para conferência o protocolo de canhotos '+v.number+', referente a '+v.items.length+' nota(s) fiscais.\n\nFavor anexar o PDF gerado pelo TMS antes do envio.\n\nAtenciosamente,\nINNOVA Soluções Logísticas';
+  const url='mailto:'+encodeURIComponent(to.join(','))+'?cc='+encodeURIComponent(cc.join(','))+'&subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);
+  info('Rascunho de e-mail preparado. Gere e anexe o PDF manualmente. O envio não é registrado como concluído.');
+  window.location.href=url;
+ }catch(e){info('E-mail: '+e.message);}
+}
+$('pr-history').onclick=async e=>{
+ const b=e.target.closest('[data-open],[data-pdf],[data-csv],[data-email]');if(!b)return;
+ const id=b.dataset.open||b.dataset.pdf||b.dataset.csv||b.dataset.email;
+ if(String(currentId)!==String(id))await openProtocol(id);
+ if(b.hasAttribute('data-pdf'))await pdf();
+ if(b.hasAttribute('data-csv'))csv();
+ if(b.hasAttribute('data-email'))await prepareProtocolEmail();
+};
 window.addEventListener('innova-protocols-open',()=>{if(!$('pr-date').value)$('pr-date').value=new Date().toLocaleDateString('en-CA');loadHistory();if(!isExisting&&!$('pr-number').value)nextProtocolNumber();});
 
 // Destinatários de protocolos: cadastro independente dos destinatários do SAC.
