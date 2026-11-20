@@ -23,10 +23,55 @@ async function openProtocol(id){try{const {data,error}=await db.from('pcd_protoc
 function report(){const v=validate();return v;}
 function pdf(){try{const v=report();const jsPDF=window.jspdf?.jsPDF;if(!jsPDF)throw Error('Biblioteca PDF não carregada.');const doc=new jsPDF({orientation:'landscape'});doc.setFontSize(16);doc.text('INNOVA | Protocolo de Canhotos',14,16);doc.setFontSize(10);doc.text(`Protocolo: ${v.number}    Data: ${dateBR(v.date)}    Quantidade de notas: ${v.items.length}`,14,25);doc.autoTable({startY:32,head:[labels],body:v.items.map(r=>[r.invoice_number,dateBR(r.invoiced_on),r.customer_code,r.customer_name,r.plan_number,r.city,r.gross_weight??'',r.invoice_value??'']),styles:{fontSize:7},headStyles:{fillColor:[0,47,108]}});doc.save(v.number+'.pdf');}catch(e){info('PDF: '+e.message);}}
 function csv(){try{const v=report();const data=[['Nº Protocolo INNOVA',...labels],...v.items.map(r=>[v.number,r.invoice_number,dateBR(r.invoiced_on),r.customer_code,r.customer_name,r.plan_number,r.city,r.gross_weight??'',r.invoice_value??''])];const content='\uFEFF'+data.map(r=>r.map(x=>'"'+String(x??'').replace(/"/g,'""')+'"').join(';')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type:'text/csv;charset=utf-8'}));a.download=v.number+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}catch(e){info('CSV: '+e.message);}}
+const normalizeNF=v=>(String(v||'').replace(/\D/g,'').replace(/^0+/,'')||'0');
+async function addInvoice(){
+ const input=$('pr-invoice');const raw=input.value.trim();if(!/^\d+$/.test(raw)){info('Informe somente os dígitos da nota fiscal.');return;}
+ readGrid();if(rows.some(r=>normalizeNF(r.invoice_number)===normalizeNF(raw))){info('Esta NF já está na grade.');input.select();return;}
+ const variants=[...new Set([raw,normalizeNF(raw),raw.padStart(9,'0')])];
+ input.disabled=true;$('pr-add-nf').disabled=true;info('Consultando NF '+raw+' na base operacional...');
+ try{
+  const {data,error}=await db.from('pcd_v8_invoices').select('invoice_number,invoiced_on,customer_code,customer_name,plan_number,city,gross_weight,invoice_value').in('invoice_number',variants).limit(100);
+  if(error)throw error;
+  const matches=(data||[]).filter(r=>normalizeNF(r.invoice_number)===normalizeNF(raw));
+  if(matches.length>1){info('A NF possui mais de um registro na base. Confira o plano e cliente na linha adicionada.');}
+  const r=matches[0];rows.push(r?Object.fromEntries(fields.map(k=>[k,r[k]??''])):{invoice_number:raw});
+  render();info(r?'NF '+raw+' localizada e preenchida automaticamente.': 'NF '+raw+' não localizada. Complete os campos manualmente antes de salvar.');
+  input.value='';input.focus();
+ }catch(e){info('Erro ao consultar NF: '+e.message);}finally{input.disabled=false;$('pr-add-nf').disabled=false;}
+}
+$('pr-add-nf').onclick=addInvoice;
+$('pr-invoice').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addInvoice();}});
 $('pr-rows').addEventListener('click',e=>{const b=e.target.closest('[data-remove]');if(b){readGrid();rows.splice(Number(b.dataset.remove),1);render();}});
 $('pr-number').addEventListener('input',()=>{$('pr-current').textContent=$('pr-number').value||'Novo';});
-$('pr-new').onclick=()=>{currentId=null;rows=[];$('pr-number').value='';$('pr-date').value=new Date().toLocaleDateString('en-CA');$('pr-file').value='';$('pr-paste').value='';render();};
+$('pr-new').onclick=()=>{currentId=null;rows=[];$('pr-number').value='';$('pr-date').value=new Date().toLocaleDateString('en-CA');render();};
 $('pr-add').onclick=()=>{readGrid();rows.push(Object.fromEntries(fields.map(k=>[k,''])));render();};
-$('pr-import').onclick=importFile;$('pr-save').onclick=save;$('pr-pdf').onclick=pdf;$('pr-csv').onclick=csv;$('pr-refresh').onclick=loadHistory;$('pr-find').onclick=renderHistory;
+$('pr-save').onclick=save;$('pr-pdf').onclick=pdf;$('pr-csv').onclick=csv;$('pr-refresh').onclick=loadHistory;$('pr-find').onclick=renderHistory;
 $('pr-history').onclick=e=>{const b=e.target.closest('[data-open]');if(b)openProtocol(b.dataset.open);};
 window.addEventListener('innova-protocols-open',()=>{if(!$('pr-date').value)$('pr-date').value=new Date().toLocaleDateString('en-CA');loadHistory();});
+
+// Destinatários de protocolos: cadastro independente dos destinatários do SAC.
+const recOcc=$('recipient-occ-panel'),recProto=$('recipient-protocol-panel');
+$('recipient-tab-occ').onclick=()=>{recOcc.classList.remove('hidden');recProto.classList.add('hidden');};
+$('recipient-tab-protocol').onclick=()=>{recOcc.classList.add('hidden');recProto.classList.remove('hidden');loadProtocolRecipients();};
+async function loadProtocolRecipients(){
+ const el=$('pr-rec-table');
+ try{
+  const {data,error}=await db.from('pcd_protocol_recipients').select('id,display_name,email,recipient_type,active').order('display_name');
+  if(error)throw error;
+  el.innerHTML='<table><thead><tr><th>Nome</th><th>E-mail</th><th>Tipo</th><th>Situação</th></tr></thead><tbody>'+(data||[]).map(r=>`<tr><td>${esc(r.display_name||'')}</td><td>${esc(r.email)}</td><td>${esc(r.recipient_type)}</td><td><button type="button" class="secondary small" data-proto-rec="${esc(r.id)}" data-next="${r.active?'false':'true'}">${r.active?'ATIVO':'INATIVO'}</button></td></tr>`).join('')+'</tbody></table>';
+  el.querySelectorAll('[data-proto-rec]').forEach(btn=>btn.onclick=async()=>{
+   const next=btn.dataset.next==='true';
+   if(!confirm((next?'Ativar':'Inativar')+' este destinatário de protocolos?'))return;
+   const {error}=await db.from('pcd_protocol_recipients').update({active:next}).eq('id',btn.dataset.protoRec);
+   if(error){$('pr-rec-feedback').textContent='Falha: '+error.message;return;}
+   loadProtocolRecipients();
+  });
+ }catch(e){el.textContent='Cadastro indisponível: '+e.message+' (execute o SQL complementar).';}
+}
+$('pr-rec-add').onclick=async()=>{
+ const display_name=$('pr-rec-name').value.trim(),email=$('pr-rec-email').value.trim().toLowerCase(),recipient_type=$('pr-rec-type').value;
+ if(!display_name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){$('pr-rec-feedback').textContent='Informe nome e e-mail válido.';return;}
+ const {error}=await db.from('pcd_protocol_recipients').upsert({display_name,email,recipient_type,active:true},{onConflict:'email'});
+ if(error){$('pr-rec-feedback').textContent='Não foi possível cadastrar: '+error.message;return;}
+ $('pr-rec-name').value='';$('pr-rec-email').value='';$('pr-rec-feedback').textContent='Destinatário salvo.';loadProtocolRecipients();
+};
