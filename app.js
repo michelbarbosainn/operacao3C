@@ -236,62 +236,90 @@ window.addEventListener('scroll',closeComplementPopup,true);
 window.addEventListener('resize',closeComplementPopup);
 const routeSortFields=[r=>r.plan_number,r=>routeComplement(r),r=>r.route_date,r=>r.loading_on,r=>r.loading_time,r=>r.city,r=>r.gross_weight,r=>r.merchandise_value,r=>r.delivery_count,r=>r.vehicle_profile,r=>r.driver_name,r=>r.plate,r=>routeDisplayStatus(r),r=>v13Loaded.has(Number(r.id))?1:0,r=>r.gm_status];
 function sortRouteRows(rows){if(routeSort.index===null)return rows;const key=routeSortFields[routeSort.index];return rows.sort((a,b)=>{const x=key(a),y=key(b);const numeric=[6,7,8,13].includes(routeSort.index);const cmp=numeric?(Number(x||0)-Number(y||0)):String(x??'').localeCompare(String(y??''),'pt-BR',{numeric:true,sensitivity:'base'});return (cmp||String(a.plan_number).localeCompare(String(b.plan_number),'pt-BR',{numeric:true}))*routeSort.dir;});}
-// V17.1: resumo operacional conservador. Nenhuma escrita no banco.
-// Continuidades são viagens distintas, mas não criam novas entregas por padrão.
-let opsSort={key:'routes',dir:-1},opsRows=[];
-const opsColumns=[['name','Motorista'],['routes','Rotas realizadas'],['deliveries','Entregas únicas previstas'],['completed','Entregas concluídas'],['rate','Taxa de conclusão'],['weight','Peso base (kg)'],['occurrences','Ocorrências'],['km','KM estimados']];
+// V18: painel analítico exploratório. Consultas somente leitura; não é avaliação disciplinar.
+let opsSort={key:'completed',dir:-1},opsRows=[],opsDetailRows=[];
+const opsColumns=[['name','Motorista'],['routes','Rotas'],['deliveries','Entregas únicas'],['completed','Concluídas*'],['rate','Conclusão'],['weight','Peso base (kg)'],['occurrences','Insucessos SAC'],['km','KM estimados']];
+const opsFmt=n=>Number(n||0).toLocaleString('pt-BR',{maximumFractionDigits:1});
 function opsRenderDrivers(){
- const el=$('ops-drivers');
- const sorted=[...opsRows].sort((a,b)=>{
-  const x=a[opsSort.key],y=b[opsSort.key];
-  const cmp=(typeof x==='number'&&typeof y==='number')?x-y:String(x??'').localeCompare(String(y??''),'pt-BR',{numeric:true,sensitivity:'base'});
-  return cmp*opsSort.dir||a.name.localeCompare(b.name,'pt-BR');
- });
- const display=(r,k)=>k==='name'?r.name:k==='weight'?r.weight.toLocaleString('pt-BR',{maximumFractionDigits:2}):['completed','rate','occurrences','km'].includes(k)?'—':Number(r[k]||0).toLocaleString('pt-BR');
- el.innerHTML='<table class="ops-ranking"><thead><tr>'+opsColumns.map(([k,l])=>`<th><button type="button" class="ops-sort" data-ops-sort="${k}" aria-label="Ordenar por ${esc(l)}">${esc(l)} <span>${opsSort.key===k?(opsSort.dir===-1?'▼':'▲'):'↕'}</span></button></th>`).join('')+'</tr></thead><tbody>'+sorted.map(r=>'<tr>'+opsColumns.map(([k])=>`<td>${esc(display(r,k))}</td>`).join('')+'</tr>').join('')+'</tbody></table>';
- el.querySelectorAll('[data-ops-sort]').forEach(btn=>btn.onclick=()=>{const k=btn.dataset.opsSort;opsSort={key:k,dir:opsSort.key===k?-opsSort.dir:(k==='name'?1:-1)};opsRenderDrivers();});
+ const sorted=[...opsRows].sort((a,b)=>{const x=a[opsSort.key],y=b[opsSort.key];const c=typeof x==='number'&&typeof y==='number'?x-y:String(x??'').localeCompare(String(y??''),'pt-BR',{numeric:true,sensitivity:'base'});return c*opsSort.dir||a.name.localeCompare(b.name,'pt-BR');});
+ const display=(r,k)=>k==='name'?esc(r.name):k==='rate'?`<span class="ops-rate"><i style="width:${Math.min(100,r.rate||0)}%"></i></span>${opsFmt(r.rate)}%`:k==='km'?r.kmCovered?`${opsFmt(r.km)} <small class="ops-secondary">${r.kmCovered}/${r.routes} rotas</small>`:'—':opsFmt(r[k]);
+ $('ops-drivers').innerHTML='<table class="ops-ranking"><thead><tr><th class="ops-rank-number">#</th>'+opsColumns.map(([k,l])=>`<th><button type="button" class="ops-sort" data-ops-sort="${k}">${esc(l)} <span>${opsSort.key===k?(opsSort.dir===-1?'↓':'↑'):'↕'}</span></button></th>`).join('')+'</tr></thead><tbody>'+sorted.map((r,i)=>`<tr><td class="ops-rank-number">${i+1}</td>`+opsColumns.map(([k])=>`<td>${k==='name'?`<button type="button" class="ops-driver-link" data-ops-detail="${esc(r.key)}">${display(r,k)}</button>`:display(r,k)}</td>`).join('')+'</tr>').join('')+'</tbody></table>';
+ $('ops-drivers').querySelectorAll('[data-ops-sort]').forEach(b=>b.onclick=()=>{const k=b.dataset.opsSort;opsSort={key:k,dir:opsSort.key===k?-opsSort.dir:(k==='name'?1:-1)};opsRenderDrivers();});
+ $('ops-drivers').querySelectorAll('[data-ops-detail]').forEach(b=>b.onclick=()=>opsRenderDetail(b.dataset.opsDetail));
+}
+function opsRenderDetail(key){
+ const r=opsRows.find(x=>x.key===key),box=$('ops-detail');if(!r)return;
+ const rows=opsDetailRows.filter(x=>x.driverKey===key).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+ box.classList.remove('hidden');
+ box.innerHTML=`<div class="ops-detail-head"><div><h3>${esc(r.name)} · rotas do período</h3><p>Viagens executadas e seus dados de origem. Entregas únicas e insucessos são consolidados por família de rotas.</p></div><button type="button" class="secondary" id="ops-detail-close">Fechar</button></div><div class="scroll"><table><thead><tr><th>Data</th><th>Plano</th><th>Status</th><th>Entregas da rota</th><th>Peso (kg)</th><th>Destino</th><th>KM ida e volta</th></tr></thead><tbody>${rows.map(x=>`<tr><td>${esc(brDate(x.date))}</td><td>${esc(x.plan)}</td><td>${esc(x.status)}</td><td>${opsFmt(x.deliveries)}</td><td>${opsFmt(x.weight)}</td><td>${esc(x.city)}</td><td>${x.km==null?'—':opsFmt(x.km)}</td></tr>`).join('')}</tbody></table></div>`;
+ $('ops-detail-close').onclick=()=>box.classList.add('hidden');box.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+async function opsFetchPages(tableName,columns,filter=null){
+ const out=[];for(let from=0;from<100000;from+=1000){let q=db.from(tableName).select(columns).range(from,from+999);if(filter)q=filter(q);const {data,error}=await q;if(error)throw Error(tableName+': '+error.message);out.push(...(data||[]));if(!data||data.length<1000)break;}return out;
 }
 async function loadOperationalSummary(){
  const start=$('ops-date-start').value,end=$('ops-date-end').value;
  if(start&&end&&start>end)throw Error('A data inicial não pode ser posterior à final.');
- const profile=norm($('ops-profile').value),driver=norm($('ops-driver').value);
- const info=$('ops-info');info.textContent='Consultando todas as rotas...';
+ const profile=norm($('ops-profile').value),driver=norm($('ops-driver').value),info=$('ops-info');info.textContent='Calculando rotas, entregas e ocorrências...';
  try{
   const all=await v13FetchAll('');
   const data=all.filter(r=>(!start||String(r.route_date||'').slice(0,10)>=start)&&(!end||String(r.route_date||'').slice(0,10)<=end)&&(!profile||norm(r.vehicle_profile)===profile)&&(!driver||norm(r.driver_name).includes(driver)));
-  const active=data.filter(r=>routeDisplayStatus(r)!=='NÃO EMBARCOU');
-  const executed=active.filter(r=>norm(r.route_status)==='CONCLUIDO'||norm(r.route_status)==='CONTINUARROTA');
-  const sum=(arr,key)=>arr.reduce((n,r)=>n+(Number(r[key])||0),0);
-  const countStatus=name=>data.filter(r=>routeDisplayStatus(r)===name).length;
-  const fmt=n=>Number(n||0).toLocaleString('pt-BR',{maximumFractionDigits:2});
-  const cards=[['Rotas ofertadas',fmt(data.length)],['Rotas executadas*',fmt(executed.length)],['Programadas',fmt(countStatus('PROGRAMADO'))],['Não embarcaram',fmt(countStatus('NÃO EMBARCOU'))],['Peso base das rotas',fmt(sum(active.filter(r=>!r.parent_route_id),'gross_weight'))+' kg']];
-  topKpiUpdate('operational-summary',[topNum(data.length),topNum(countStatus('PROGRAMADO')),topNum(countStatus('EM ROTA')),topNum(countStatus('CONCLUÍDO')),topNum(countStatus('NÃO EMBARCOU')),topNum(sum(active.filter(r=>!r.parent_route_id),'delivery_count'))]);
-  $('ops-kpis').innerHTML=cards.map(([label,value])=>`<div class="v13-card"><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join('');
-  const statuses=new Map(),profiles=new Map(),groups=new Map();
-  for(const r of data){const st=routeDisplayStatus(r),pf=r.vehicle_profile||'Sem perfil';statuses.set(st,(statuses.get(st)||0)+1);profiles.set(pf,(profiles.get(pf)||0)+1);}
-  // A unidade de entregas pertence à rota raiz; as continuidades não acrescentam entregas.
-  // Não atribuir conclusão por simples status de rota: falta evidência individual de entrega.
-  const roots=new Map(all.map(r=>[String(r.id),r]));
-  function rootOf(r){let current=r;const seen=new Set();while(current.parent_route_id&&!seen.has(String(current.id))){seen.add(String(current.id));const parent=roots.get(String(current.parent_route_id));if(!parent)break;current=parent;}return current;}
-  for(const r of executed){
-   if(!r.driver_name)continue;
-   const name=String(r.driver_name).trim(),key=r.driver_id?'id:'+r.driver_id:'name:'+norm(name);
-   const g=groups.get(key)||{name,routes:0,deliveries:0,completed:null,rate:null,weight:0,occurrences:null,km:null,roots:new Set()};
-   g.routes++;
-   const root=rootOf(r),rootKey=String(root.id);
-   if(!g.roots.has(rootKey)){
-    g.roots.add(rootKey);
-    // Quantidade original única da família de rotas, sem reaplicar entregas herdadas.
-    g.deliveries+=Number(root.delivery_count)||0;
-    g.weight+=Number(root.gross_weight)||0;
+  const executed=data.filter(r=>r.driver_name&&['CONCLUIDO','CONTINUARROTA'].includes(norm(r.route_status))&&norm(routeDisplayStatus(r))!=='NAOEMBARCOU');
+  const allById=new Map(all.map(r=>[String(r.id),r]));
+  function rootOf(r){let cur=r;const seen=new Set();while(cur.parent_route_id&&!seen.has(String(cur.id))){seen.add(String(cur.id));const parent=allById.get(String(cur.parent_route_id));if(!parent)break;cur=parent;}return cur;}
+  const rootIds=new Set(executed.map(r=>String(rootOf(r).id)));
+  const families=new Map();for(const r of executed){const root=rootOf(r),key=String(root.id);if(!families.has(key))families.set(key,{root,routes:[]});families.get(key).routes.push(r);}
+  const plans=[...new Set([...families.values()].flatMap(f=>[f.root,...f.routes].map(r=>String(r.plan_number||'').trim()).filter(Boolean)))];
+  const invoices=[];for(let i=0;i<plans.length;i+=25){const part=plans.slice(i,i+25);invoices.push(...await opsFetchPages('pcd_v8_invoices','id,plan_number,invoice_number,customer_code,customer_name,city',q=>q.in('plan_number',part)));}
+  const invoiceByPlan=new Map();for(const inv of invoices){const key=String(inv.plan_number||'').trim();if(!invoiceByPlan.has(key))invoiceByPlan.set(key,[]);invoiceByPlan.get(key).push(inv);}
+  // Ocorrências encerradas ou abertas podem indicar insucesso; penalizar apenas encerramento REENTREGA/DEVOLUÇÃO.
+  const occ=[];for(let i=0;i<plans.length;i+=25)occ.push(...await opsFetchPages('pcd_v9_occurrences','id,plan_number,customer_code,customer_name,status,closing_result',q=>q.in('plan_number',plans.slice(i,i+25))));
+  const occByPlan=new Map();for(const o of occ){const key=String(o.plan_number||'').trim();if(!occByPlan.has(key))occByPlan.set(key,[]);occByPlan.get(key).push(o);}
+  // Distâncias já cadastradas na tabela de faixas da operação. Selecionar por cidade, sem estimar geografia inexistente.
+  let distances=[],distanceWarning='';try{distances=await opsFetchPages('pcd_billing_city_rates','city,distance_km');}catch(e){distanceWarning='Distâncias não disponíveis: '+e.message;}
+  const distByCity=new Map();for(const d of distances){const key=norm(d.city),km=Number(d.distance_km);if(key&&Number.isFinite(km)&&km>0&&!distByCity.has(key))distByCity.set(key,km);}
+  const groups=new Map(),clientStats=new Map();opsDetailRows=[];
+  for(const [rootKey,f] of families){
+   const root=f.root,rootPlan=String(root.plan_number||'').trim();const familyPlans=[...new Set([root,...f.routes].map(r=>String(r.plan_number||'').trim()).filter(Boolean))];
+   const familyInvoices=[...new Map(familyPlans.flatMap(p=>invoiceByPlan.get(p)||[]).map(i=>[String(i.id),i])).values()];
+   const customers=new Map();for(const i of familyInvoices){const code=String(i.customer_code||'').trim()||'SEM CÓDIGO';if(!customers.has(code))customers.set(code,{code,name:i.customer_name||'',cities:new Set(),invoices:new Set()});customers.get(code).invoices.add(String(i.invoice_number||i.id));if(i.city)customers.get(code).cities.add(norm(i.city));}
+   const expected=Math.max(Number(root.delivery_count)||0,customers.size);
+   const familyOcc=[...new Map(familyPlans.flatMap(p=>occByPlan.get(p)||[]).map(o=>[String(o.id),o])).values()];
+   const bad=familyOcc.filter(o=>norm(o.status)==='ENCERRADA'&&['REENTREGA','DEVOLUCAOTOTAL','DEVOLUCAOPARCIAL','DEVOLUCAO'].includes(norm(o.closing_result)));
+   const badCodes=new Set(bad.map(o=>String(o.customer_code||'').trim()).filter(Boolean));
+   // Cada cliente com insucesso conta uma entrega afetada; sem código, usar limite conservador por ocorrência.
+   const affected=Math.min(expected,Math.max(badCodes.size,bad.filter(o=>!String(o.customer_code||'').trim()).length+badCodes.size));
+   const completed=Math.max(0,expected-affected);
+   // A família é atribuída ao motorista da primeira execução; viagens posteriores contam ao respectivo condutor.
+   const first=[...f.routes].sort((a,b)=>String(a.route_date).localeCompare(String(b.route_date)))[0];
+   const firstKey=first.driver_id?'id:'+first.driver_id:'name:'+norm(first.driver_name);
+   for(const r of f.routes){
+    const key=r.driver_id?'id:'+r.driver_id:'name:'+norm(r.driver_name);let g=groups.get(key);if(!g){g={key,name:String(r.driver_name).trim(),routes:0,deliveries:0,completed:0,rate:0,weight:0,occurrences:0,km:0,kmCovered:0};groups.set(key,g);}g.routes++;
+    // Cada rota: distância do destino mais distante identificado, ida e volta.
+    const routeInvoices=invoiceByPlan.get(String(r.plan_number||'').trim())||[];
+    const cities=[...routeInvoices.map(i=>norm(i.city)),norm(r.city)].filter(Boolean);
+    const valid=cities.map(c=>distByCity.get(c)).filter(v=>Number.isFinite(v)&&v>0);
+    const km=valid.length?2*Math.max(...valid):null;
+    if(km!=null){g.km+=km;g.kmCovered++;}
+    opsDetailRows.push({driverKey:key,date:r.route_date,plan:r.plan_number,status:r.route_status,deliveries:r.delivery_count,weight:r.gross_weight,city:r.city||routeInvoices.map(i=>i.city).filter(Boolean).join(', '),km});
    }
-   groups.set(key,g);
+   let g=groups.get(firstKey);if(!g)continue;g.deliveries+=expected;g.completed+=completed;g.occurrences+=affected;g.weight+=Number(root.gross_weight)||0;
+   for(const c of customers.values()){
+    let stat=clientStats.get(c.code);if(!stat){stat={code:c.code,name:c.name,deliveries:0,occurrences:0};clientStats.set(c.code,stat);}stat.deliveries++;
+    if(badCodes.has(c.code))stat.occurrences++;
+   }
   }
-  opsRows=[...groups.values()];opsRenderDrivers();
-  $('ops-status').innerHTML=table(['Status','Rotas'],[...statuses].sort((a,b)=>b[1]-a[1]));
-  $('ops-profiles').innerHTML=table(['Perfil','Rotas'],[...profiles].sort((a,b)=>b[1]-a[1]));
-  $('ops-client-ranking').textContent='Aguardando vínculo validado entre ocorrências, notas fiscais e códigos de clientes. Nenhuma incidência foi presumida.';
-  info.textContent=fmt(data.length)+' rotas consultadas · '+fmt(executed.length)+' viagens executadas identificadas · Indicadores pendentes sinalizados com —';
+  opsRows=[...groups.values()].map(g=>({...g,rate:g.deliveries?100*g.completed/g.deliveries:0}));opsRenderDrivers();
+  $('ops-detail').classList.add('hidden');
+  const sums=(key)=>opsRows.reduce((n,r)=>n+(Number(r[key])||0),0);
+  const cards=[['Viagens executadas',opsFmt(executed.length),'Rotas concluídas e continuidades'],['Entregas únicas',opsFmt(sums('deliveries')),'Sem duplicar continuidades'],['Entregas concluídas*',opsFmt(sums('completed')),'Estimativa pela classificação SAC'],['Insucessos SAC',opsFmt(sums('occurrences')),'Devoluções e reentregas encerradas'],['KM estimados',opsFmt(sums('km')),'Cobertura: '+opsFmt(sums('kmCovered'))+'/'+opsFmt(executed.length)+' rotas']];
+  $('ops-kpis').innerHTML=cards.map(([label,value,sub])=>`<div class="ops-metric"><span>${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(sub)}</small></div>`).join('');
+  const statuses=new Map(),profiles=new Map();for(const r of data){const st=routeDisplayStatus(r),pf=r.vehicle_profile||'Sem perfil';statuses.set(st,(statuses.get(st)||0)+1);profiles.set(pf,(profiles.get(pf)||0)+1);}
+  $('ops-status').innerHTML=table(['Status','Rotas'],[...statuses].sort((a,b)=>b[1]-a[1]));$('ops-profiles').innerHTML=table(['Perfil','Rotas'],[...profiles].sort((a,b)=>b[1]-a[1]));
+  const ranked=[...clientStats.values()].filter(x=>x.occurrences).sort((a,b)=>b.occurrences-a.occurrences||a.code.localeCompare(b.code));
+  $('ops-client-ranking').innerHTML=ranked.length?`<div class="scroll"><table class="ops-client-table"><thead><tr><th>Código</th><th>Cliente</th><th>Entregas identificadas</th><th>Insucessos</th><th>Incidência</th></tr></thead><tbody>${ranked.map(x=>`<tr><td>${esc(x.code)}</td><td>${esc(x.name)}</td><td>${opsFmt(x.deliveries)}</td><td>${opsFmt(x.occurrences)}</td><td>${opsFmt(x.deliveries?100*x.occurrences/x.deliveries:0)}%</td></tr>`).join('')}</tbody></table></div>`:'Nenhum insucesso encerrado com código de cliente foi identificado nas rotas executadas do período.';
+  topKpiUpdate('operational-summary',[topNum(data.length),topNum(data.filter(r=>norm(r.route_status)==='PROGRAMADO').length),topNum(data.filter(r=>norm(r.route_status)==='EMROTA').length),topNum(executed.length),topNum(data.filter(r=>norm(r.route_status)==='NAOEMBARCOU').length),topNum(sums('deliveries'))]);
+  info.textContent=`${opsFmt(data.length)} rotas consultadas · ${opsFmt(executed.length)} executadas · ${opsFmt(opsRows.length)} motoristas${distanceWarning?' · '+distanceWarning:''}`;
  }catch(e){info.textContent='Não foi possível atualizar o resumo: '+e.message;throw e;}
 }
 $('ops-filter').onclick=()=>loadOperationalSummary().catch(e=>message(e.message,true));
