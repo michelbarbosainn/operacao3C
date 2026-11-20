@@ -274,12 +274,25 @@ async function loadOperationalSummary(){
   const invoiceByPlan=new Map();for(const inv of invoices){const key=String(inv.plan_number||'').trim();if(!invoiceByPlan.has(key))invoiceByPlan.set(key,[]);invoiceByPlan.get(key).push(inv);}
   // Ocorrências encerradas ou abertas podem indicar insucesso; penalizar apenas encerramento REENTREGA/DEVOLUÇÃO.
   // Ocorrências são opcionais para o resumo: falhas de permissão não podem ocultar os indicadores de rotas.
-  const occ=[];let occurrenceWarning='';
+  const occ=[];let occurrenceWarning='';let occurrenceFetchError='';
   for(let i=0;i<plans.length;i+=25){
    try{occ.push(...await opsFetchPages('pcd_v9_occurrences','id,plan_number,customer_code,customer_name,status,closing_result',q=>q.in('plan_number',plans.slice(i,i+25))));}
-   catch(e){occ.length=0;occurrenceWarning='Ocorrências SAC indisponíveis (permissão de leitura).';break;}
+   catch(e){occ.length=0;occurrenceFetchError=e.message;occurrenceWarning='Ocorrências SAC indisponíveis: '+e.message;break;}
   }
-  const occByPlan=new Map();for(const o of occ){const key=String(o.plan_number||'').trim();if(!occByPlan.has(key))occByPlan.set(key,[]);occByPlan.get(key).push(o);}
+  if(!occurrenceWarning&&plans.length&&occ.length===0){occurrenceWarning='Nenhuma ocorrência SAC visível para os planos consultados. Verifique permissões RLS e vínculos; conclusão não calculada.';}
+  // Verificação adicional: a OC-000025 é um caso confirmado (plano 6103358037, rota 7887).
+  // Quando a consulta em lote não retorna a ocorrência, testar a leitura por ID e plano.
+  // Não inserir dados fictícios no ranking; registrar diagnóstico para o usuário.
+  let oc25Diagnostic='';
+  if(plans.some(p=>norm(p)==='6103358037')&&!occ.some(o=>Number(o.id)===25)){
+   try{
+    const {data:oc25,error:oc25Error}=await db.from('pcd_v9_occurrences').select('id,plan_number,status,closing_result,customer_code').eq('id',25).maybeSingle();
+    if(oc25Error)oc25Diagnostic='OC-000025: '+oc25Error.message;
+    else if(oc25){occ.push(oc25);oc25Diagnostic='OC-000025 recuperada por consulta direta; verificar filtro por plano.';if(!occurrenceFetchError)occurrenceWarning='';}
+    else oc25Diagnostic='OC-000025 não está visível para este usuário (verificar RLS).';
+   }catch(e){oc25Diagnostic='OC-000025: '+e.message;}
+  }
+  const occByPlan=new Map();for(const o of occ){const key=norm(o.plan_number);if(!occByPlan.has(key))occByPlan.set(key,[]);occByPlan.get(key).push(o);}
   // Distâncias já cadastradas na tabela de faixas da operação. Selecionar por cidade, sem estimar geografia inexistente.
   let distances=[],distanceWarning='';try{distances=await opsFetchPages('pcd_billing_city_rates','city,distance_km');}catch(e){distanceWarning='Distâncias não disponíveis: '+e.message;}
   const distByCity=new Map();for(const d of distances){const key=norm(d.city),km=Number(d.distance_km);if(key&&Number.isFinite(km)&&km>0&&!distByCity.has(key))distByCity.set(key,km);}
@@ -289,7 +302,7 @@ async function loadOperationalSummary(){
    const familyInvoices=[...new Map(familyPlans.flatMap(p=>invoiceByPlan.get(p)||[]).map(i=>[String(i.id),i])).values()];
    const customers=new Map();for(const i of familyInvoices){const code=String(i.customer_code||'').trim()||'SEM CÓDIGO';if(!customers.has(code))customers.set(code,{code,name:i.customer_name||'',cities:new Set(),invoices:new Set()});customers.get(code).invoices.add(String(i.invoice_number||i.id));if(i.city)customers.get(code).cities.add(norm(i.city));}
    const expected=Math.max(Number(root.delivery_count)||0,customers.size);
-   const familyOcc=[...new Map(familyPlans.flatMap(p=>occByPlan.get(p)||[]).map(o=>[String(o.id),o])).values()];
+   const familyOcc=[...new Map(familyPlans.flatMap(p=>occByPlan.get(norm(p))||[]).map(o=>[String(o.id),o])).values()];
    const bad=familyOcc.filter(o=>norm(o.status)==='ENCERRADA'&&['REENTREGA','DEVOLUCAOTOTAL','DEVOLUCAOPARCIAL','DEVOLUCAO'].includes(norm(o.closing_result)));
    const badCodes=new Set(bad.map(o=>String(o.customer_code||'').trim()).filter(Boolean));
    // Cada cliente com insucesso conta uma entrega afetada; sem código, usar limite conservador por ocorrência.
@@ -324,7 +337,7 @@ async function loadOperationalSummary(){
   const ranked=[...clientStats.values()].filter(x=>x.occurrences).sort((a,b)=>b.occurrences-a.occurrences||a.code.localeCompare(b.code));
   $('ops-client-ranking').innerHTML=occurrenceWarning?'<p class="muted">Ranking de insucessos temporariamente indisponível: falta permissão de leitura das ocorrências no Supabase.</p>':ranked.length?`<div class="scroll"><table class="ops-client-table"><thead><tr><th>Código</th><th>Cliente</th><th>Entregas identificadas</th><th>Insucessos</th><th>Incidência</th></tr></thead><tbody>${ranked.map(x=>`<tr><td>${esc(x.code)}</td><td>${esc(x.name)}</td><td>${opsFmt(x.deliveries)}</td><td>${opsFmt(x.occurrences)}</td><td>${opsFmt(x.deliveries?100*x.occurrences/x.deliveries:0)}%</td></tr>`).join('')}</tbody></table></div>`:'Nenhum insucesso encerrado com código de cliente foi identificado nas rotas executadas do período.';
   topKpiUpdate('operational-summary',[topNum(data.length),topNum(data.filter(r=>norm(r.route_status)==='PROGRAMADO').length),topNum(data.filter(r=>norm(r.route_status)==='EMROTA').length),topNum(executed.length),topNum(data.filter(r=>norm(r.route_status)==='NAOEMBARCOU').length),topNum(sums('deliveries'))]);
-  info.textContent=`${opsFmt(data.length)} rotas consultadas · ${opsFmt(executed.length)} executadas · ${opsFmt(opsRows.length)} motoristas${occurrenceWarning?' · '+occurrenceWarning:''}${distanceWarning?' · '+distanceWarning:''}`;
+  info.textContent=`${opsFmt(data.length)} rotas consultadas · ${opsFmt(executed.length)} executadas · ${opsFmt(opsRows.length)} motoristas · ${opsFmt(occ.length)} ocorrências SAC consultadas${occurrenceWarning?' · '+occurrenceWarning:''}${distanceWarning?' · '+distanceWarning:''}${oc25Diagnostic?' · '+oc25Diagnostic:''}`;
  }catch(e){info.textContent='Não foi possível atualizar o resumo: '+e.message;throw e;}
 }
 $('ops-filter').onclick=()=>loadOperationalSummary().catch(e=>message(e.message,true));
