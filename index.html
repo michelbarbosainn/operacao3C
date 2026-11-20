@@ -35,8 +35,8 @@
 <p id="ops-info" class="muted" role="status">Selecione o período e clique em Aplicar filtros.</p>
 <div id="ops-kpis" class="v13-summary"></div>
 <div class="ops-panels"><div><h3>Status das rotas</h3><div id="ops-status" class="scroll"></div></div><div><h3>Perfil ofertado</h3><div id="ops-profiles" class="scroll"></div></div></div>
-<h3 style="margin-top:18px">Programação por motorista</h3><p class="muted">Contagem por motorista no período; rotas sem motorista aparecem separadamente.</p><div class="scroll" id="ops-drivers"></div>
-<p class="note">Rotas NÃO EMBARCOU permanecem no total ofertado, mas são excluídas dos totais de carga operacional. Oportunidade de perfil exige identificação confiável do veículo efetivamente escalado; não representa economia comprovada. A consulta pode demorar em períodos extensos.</p>
+<h3 style="margin-top:18px">Desempenho por motorista</h3><p class="muted">Clique nos títulos para ordenar. Rotas de continuidade contam como viagens adicionais, sem duplicar entregas herdadas. Indicadores sem confirmação individual aparecem como —.</p><div class="scroll" id="ops-drivers"></div><h3 style="margin-top:20px">Ocorrências por código do cliente</h3><p class="muted" id="ops-client-ranking">Aguardando consulta.</p>
+<p class="note">* Viagens executadas: status CONCLUÍDO ou CONTINUAR ROTA. Peso base: carga da rota raiz, sem repetir o peso integral nas continuidades; não é peso efetivamente movimentado por dia. Entregas únicas previstas não significam entregas concluídas. Conclusões, ocorrências e KM dependem de dados individuais confiáveis. NÃO EMBARCOU não gera produção.</p>
 </section>
 <section class="card data-panel hidden" id="panel-finance-params"><div class="head"><div><h1>Parâmetros Financeiros</h1><p>Taxas com vigência e histórico. Acesso exclusivo do administrador.</p></div><button class="secondary" id="finance-refresh">Atualizar</button></div>
 <h2 style="margin:18px 0 8px;font-size:15px">Parâmetros vigentes</h2><div class="scroll"><table><thead><tr><th>Parâmetro</th><th>Taxa vigente</th><th>Base</th><th>Início</th><th>Ação</th></tr></thead><tbody id="finance-params-body"></tbody></table></div>

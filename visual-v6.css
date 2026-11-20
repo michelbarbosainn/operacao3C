@@ -594,3 +594,6 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 .holiday-import-preview{border:1px solid var(--line,#dfe5eb);border-radius:10px;padding:12px;margin-top:12px;font-size:13px}
 .holiday-import-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:16px}
 @media(max-width:580px){.holiday-import-options{grid-template-columns:repeat(3,minmax(0,1fr))}.holiday-import-dialog{padding:16px}}
+
+/* V17.1 · Ranking operacional compacto */
+#ops-drivers .ops-ranking{width:100%;border-collapse:collapse;font-size:12px}#ops-drivers .ops-ranking th,#ops-drivers .ops-ranking td{padding:10px 11px;white-space:nowrap;border-bottom:1px solid var(--border,#e5e7eb);text-align:right}#ops-drivers .ops-ranking th:first-child,#ops-drivers .ops-ranking td:first-child{text-align:left}#ops-drivers .ops-ranking tbody tr:hover{background:rgba(100,116,139,.06)}#ops-drivers .ops-sort{font:inherit;font-weight:500;color:inherit;border:0;background:transparent;cursor:pointer;padding:0;text-align:inherit}#ops-drivers .ops-sort span{opacity:.55;margin-left:3px}#ops-drivers .ops-sort:hover{text-decoration:underline}
