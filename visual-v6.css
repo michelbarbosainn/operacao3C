@@ -615,3 +615,15 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 #panel-protocols .pr-row-remove:hover{background:#e9f2fb;border-color:#bad2eb;color:#074c82}
 #panel-protocols .pr-row-remove:focus-visible{outline:2px solid #1c6eb0;outline-offset:2px}
 @media(max-width:560px){#panel-protocols .pr-entry .row{flex-wrap:wrap}#panel-protocols #pr-add-nf{width:100%}#panel-protocols .pr-limit{width:100%;margin-left:0}}
+
+/* Protocolos: conferência de duplicidades e retificações auditáveis */
+#panel-protocols .pr-dup-alert{display:inline-flex;align-items:center;justify-content:center;width:19px;height:19px;margin-right:5px;border:1px solid #e69c9c;border-radius:50%;background:#fff0f0;color:#c12b32;font-weight:700;font-size:12px;cursor:pointer;padding:0}
+#panel-protocols .pr-dup-alert:hover{background:#ffdcdc}
+#panel-protocols .pr-inactive{opacity:.65;background:#fff5f5}
+#panel-protocols .pr-status-inactive,#panel-protocols .pr-status-added{display:block;font-size:10px;margin-top:3px;color:#a43d45;white-space:nowrap}
+#panel-protocols .pr-status-added{color:#167b63}
+#panel-protocols .pr-revision{border:1px solid #cddfeb;background:#f5f9fe;border-radius:10px;padding:14px;margin:12px 0}
+#panel-protocols .pr-revision h3{font-size:14px;margin:0 0 5px}
+#panel-protocols .pr-revision .row{display:flex;gap:8px;margin:10px 0}
+#panel-protocols .pr-revision input{flex:1;min-width:0}
+#panel-protocols .pr-revision table{margin-top:12px}
