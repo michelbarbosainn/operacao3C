@@ -85,7 +85,7 @@ function topKpiUpdate(t,values){topKpiCache.set(t,values.map(v=>v==null?'—':St
 const topNum=n=>Number(n||0).toLocaleString('pt-BR');
 
 async function refreshMetrics(){const a=await rpc('pcd_dashboard');$('metric-routes').textContent=a.total_routes;const day=$('availability-date').value||today();drivers=await rpc('pcd_v8_drivers',{p_date:day});$('metric-drivers').textContent=drivers.length;$('metric-available').textContent=drivers.filter(d=>d.day_status==='DISPONIVEL').length;$('metric-assigned').textContent=drivers.filter(d=>d.day_status==='PROGRAMADO').length;topKpiUpdate('import',[topNum(a.total_routes),topNum(drivers.length),topNum(drivers.filter(d=>d.day_status==='DISPONIVEL').length),topNum(drivers.filter(d=>d.day_status==='PROGRAMADO').length),'—','—']);}
-async function showTab(t){if((t==='billing'||t==='management')&&!financeOwner){message('Acesso financeiro e gerencial exclusivo do usuário autorizado.',true);return;}if(t==='finance-params'&&$('finance-params-nav').classList.contains('hidden')){message('Acesso restrito ao administrador.',true);return;}tab=t;topKpiRender(t);document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','finance-params','availability','sac','occurrences','recipients','reasons','operational-summary','management','calendar'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='operational-summary')await loadOperationalSummary();if(t==='billing')await loadBilling();if(t==='management')await loadManagement();if(t==='finance-params')await loadFinanceParams();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();if(t==='calendar')await loadCalendar();}catch(e){message(e.message,true);}}
+async function showTab(t){if((t==='billing'||t==='management')&&!financeOwner){message('Acesso financeiro e gerencial exclusivo do usuário autorizado.',true);return;}if(t==='finance-params'&&$('finance-params-nav').classList.contains('hidden')){message('Acesso restrito ao administrador.',true);return;}tab=t;topKpiRender(t);document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','finance-params','availability','sac','protocols','occurrences','recipients','reasons','operational-summary','management','calendar'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='operational-summary')await loadOperationalSummary();if(t==='billing')await loadBilling();if(t==='management')await loadManagement();if(t==='finance-params')await loadFinanceParams();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='protocols')window.dispatchEvent(new Event('innova-protocols-open'));if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();if(t==='calendar')await loadCalendar();}catch(e){message(e.message,true);}}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 const sideToggle=$('sidebar-toggle'),cadToggle=$('cadastros-toggle'),cadMenu=$('cadastros-submenu');
 sideToggle.onclick=()=>{const collapsed=document.body.classList.toggle('sidebar-collapsed');sideToggle.title=collapsed?'Expandir menu':'Recolher menu';sideToggle.querySelector('span').textContent=collapsed?'Expandir menu':'Recolher menu';};
@@ -406,22 +406,24 @@ async function updateSACOccurrenceKpi(filtered){
  const previous=topKpiCache.get('sac')||[];
  if(previous.length===6){previous[5]=value==='—'?'—':topNum(value);topKpiUpdate('sac',previous);}
 }
-async function sacPlansForInvoice(raw){
- const digits=String(raw||'').replace(/\D/g,'');
- if(!digits)return null;
- const clean=digits.replace(/^0+/,'')||'0';
- const candidates=[...new Set([digits,clean,digits.padStart(9,'0')])];
- const {data,error}=await db.from('pcd_v8_invoices').select('plan_number,invoice_number').in('invoice_number',candidates);
- if(error)throw new Error('Consulta da NF: '+error.message);
- const plans=new Set((data||[]).map(x=>String(x.plan_number||'').trim()).filter(Boolean));
- if(!plans.size){
-  const {data:more,error:err}=await db.from('pcd_v8_invoices').select('plan_number,invoice_number').ilike('invoice_number','%'+clean+'%').limit(500);
-  if(err)throw new Error('Busca complementar da NF: '+err.message);
-  for(const item of more||[]){
-   if((String(item.invoice_number||'').replace(/\D/g,'').replace(/^0+/,'')||'0')===clean && item.plan_number)plans.add(String(item.plan_number).trim());
-  }
- }
- return plans;
+// Filtro de NF do SAC: consulta apenas leitura e preserva todos os demais filtros.
+async function sacFindInvoicePlans(value){
+ const number=String(value||'').replace(/\D/g,'').replace(/^0+/,'')||'0';
+ if(!String(value||'').trim())return null;
+ if(!/^\d+$/.test(String(value).trim()))throw Error('Informe apenas o número da nota fiscal.');
+ const variants=[...new Set([number,number.padStart(9,'0'),String(value).trim()])];
+ const {data,error}=await db.from('pcd_v8_invoices').select('invoice_number,plan_number').in('invoice_number',variants).limit(1000);
+ if(error)throw Error('Não foi possível consultar a NF: '+error.message);
+ const found=(data||[]).filter(x=>(String(x.invoice_number||'').replace(/^0+/,'')||'0')===number);
+ return {plans:new Set(found.map(x=>String(x.plan_number||'').trim()).filter(Boolean)),number};
+}
+function sacRouteMatchesInvoice(route,invoice){
+ if(!invoice)return true;
+ const plan=String(route.plan_number||'').trim();
+ if(invoice.plans.has(plan))return true;
+ // Rotas operacionais identificadas diretamente por uma lista de notas.
+ if(typeof operationalInvoiceNumbers==='function'&&operationalInvoiceNumbers(plan).includes(invoice.number))return true;
+ return false;
 }
 async function loadRoutes(which){
  const prefix=which==='sac'?'sac':'route';
@@ -440,10 +442,9 @@ async function loadRoutes(which){
   // V13.25: filtrar o conjunto inteiro ANTES da paginação (evita páginas vazias e totais incorretos).
   const routeDate=$('sac-date').value,requestDate=$('sac-request-date').value,driver=norm($('sac-driver').value);
   const selectedStatuses=selectedSACStatuses();
-  const invoicePlans=await sacPlansForInvoice($('sac-invoice')?.value);
+  const invoice=await sacFindInvoicePlans($('sac-invoice')?.value);
   const all=await v13FetchAll(search);
-  const filtered=all.filter(r=>(invoicePlans===null||invoicePlans.has(String(r.plan_number||'').trim()))&&(!routeDate||String(r.route_date||'').slice(0,10)===routeDate)&&(!requestDate||String(r.request_date||'').slice(0,10)===requestDate)&&(!profileFilter||norm(r.vehicle_profile)===norm(profileFilter))&&(!selectedStatuses.length||selectedStatuses.includes(routeDisplayStatus(r)))&&(!driver||norm(r.driver_name).includes(driver)));
-  if(invoicePlans!==null&&!invoicePlans.size)message('NF não localizada na base de notas fiscais importadas.',true);
+  const filtered=all.filter(r=>sacRouteMatchesInvoice(r,invoice)&&(!routeDate||String(r.route_date||'').slice(0,10)===routeDate)&&(!requestDate||String(r.request_date||'').slice(0,10)===requestDate)&&(!profileFilter||norm(r.vehicle_profile)===norm(profileFilter))&&(!selectedStatuses.length||selectedStatuses.includes(routeDisplayStatus(r)))&&(!driver||norm(r.driver_name).includes(driver)));
   totals.sac=filtered.length;
   const countStatus=name=>filtered.filter(r=>routeDisplayStatus(r)===name).length;
   const sacCards=[['Rotas acompanhadas',filtered.length],['Em rota',countStatus('EM ROTA')],['Concluídas',countStatus('CONCLUÍDO')],['Não embarcaram',countStatus('NÃO EMBARCOU')],['Entregas previstas',filtered.reduce((n,r)=>n+(Number(r.delivery_count)||0),0)],['Ocorrências','—']];
@@ -760,6 +761,7 @@ $('gm-import-file').onchange=async e=>{
   await loadRoutes('sac');message(response.updated>0?'GreenMile importado: '+response.updated+' rotas vinculadas. Confira as divergencias.':'Nenhuma rota vinculada. Confira o resumo de divergências da importação.',response.updated===0);
  }catch(err){message('Falha na importacao GreenMile: '+err.message,true);}finally{button.disabled=false;e.target.value='';}
 };
+$('sac-invoice')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('sac-filter').click();}});
 for(const which of ['routes','sac']){const prefix=which==='sac'?'sac':'route';$(prefix+'-filter').onclick=()=>{pages[which]=0;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-prev').onclick=()=>{pages[which]--;loadRoutes(which).catch(e=>message(e.message,true));};$(prefix+'-next').onclick=()=>{pages[which]++;loadRoutes(which).catch(e=>message(e.message,true));};$('refresh-'+which).onclick=()=>loadRoutes(which).catch(e=>message(e.message,true));}
 function modal(title,summary,body,fn){$('modal-save').classList.remove('hidden');$('modal-save').textContent='Salvar';$('modal-save').disabled=false;$('modal-title').textContent=title;$('modal-summary').textContent=summary;$('modal-body').innerHTML=body;modalSave=fn;$('modalbg').classList.remove('hidden');}
 $('modal-close').onclick=()=>{$('modalbg').classList.add('hidden');};$('modal-save').onclick=async()=>{try{$('modal-save').disabled=true;await modalSave();$('modalbg').classList.add('hidden');await refreshMetrics();if(tab==='recipients')await loadRecipients();else await loadRoutes(tab==='sac'?'sac':'routes');message('Alteração salva com sucesso.');}catch(e){message(e.message,true);}finally{$('modal-save').disabled=false;}};
