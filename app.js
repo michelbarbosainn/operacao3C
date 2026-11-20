@@ -703,8 +703,11 @@ function askImportHoliday(preview,count){
  return new Promise(resolve=>{
   const modalEl=$('holiday-import-modal');
   const expected=preview.expected_date;
-  const options=Array.isArray(preview.options)?preview.options:[];
-  let selected=options.find(x=>!x.weekend&&!x.holiday)?.date||options[0]?.date||expected;
+  const futureOptions=Array.isArray(preview.options)?preview.options:[];
+  // A data do próprio feriado deve estar disponível para entregas excepcionais.
+  // Mantemos os cinco dias seguintes enviados pelo banco e a sugestão do primeiro útil.
+  const options=[{date:expected,holiday:preview.holiday||'Feriado',weekend:false},...futureOptions.filter(x=>x.date!==expected)];
+  let selected=futureOptions.find(x=>!x.weekend&&!x.holiday)?.date||futureOptions[0]?.date||expected;
   const originalSelected=()=>selected===expected;
   const reasonEl=$('holiday-import-reason');reasonEl.value='';
   $('holiday-import-date').textContent=holidayBR(expected)+' · '+holidayWeekday(expected);
@@ -715,7 +718,8 @@ function askImportHoliday(preview,count){
    $('holiday-import-options').innerHTML=options.map(o=>`<button type="button" class="holiday-import-option ${o.date===selected?'is-selected':''}" data-holiday-date="${esc(o.date)}"><span class="weekday">${esc(holidayWeekday(o.date))}</span><span class="day">${esc(o.date.slice(-2))}</span><span class="flag">${esc(o.holiday?'Feriado':o.weekend?'Fim sem.':'Dia útil')}</span></button>`).join('');
    $('holiday-import-options').querySelectorAll('[data-holiday-date]').forEach(b=>b.onclick=()=>{selected=b.dataset.holidayDate;draw();});
    const opt=options.find(x=>x.date===selected);
-   $('holiday-import-summary').textContent=`${count} rota(s): ${holidayBR(expected)} → ${holidayBR(selected)}${opt?.holiday?' · '+opt.holiday:''}`;
+   $('holiday-import-summary').textContent=selected===expected?`${count} rota(s) permanecerão em ${holidayBR(expected)} · Programação excepcional no feriado`:`${count} rota(s): ${holidayBR(expected)} → ${holidayBR(selected)}${opt?.holiday?' · '+opt.holiday:''}`;
+   $('holiday-import-confirm').textContent=selected===expected?'Confirmar programação no feriado':'Confirmar nova data';
   }
   $('holiday-import-confirm').onclick=()=>{
    const opt=options.find(x=>x.date===selected),reason=reasonEl.value.trim();
