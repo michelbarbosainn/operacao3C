@@ -241,8 +241,8 @@ let opsSort={key:'completed',dir:-1},opsRows=[],opsDetailRows=[];
 const opsColumns=[['name','Motorista'],['routes','Rotas'],['deliveries','Entregas únicas'],['completed','Concluídas*'],['rate','Conclusão'],['weight','Peso base (kg)'],['occurrences','Insucessos SAC'],['km','KM estimados']];
 const opsFmt=n=>Number(n||0).toLocaleString('pt-BR',{maximumFractionDigits:1});
 function opsRenderDrivers(){
- const sorted=[...opsRows].sort((a,b)=>{const x=a[opsSort.key],y=b[opsSort.key];const c=typeof x==='number'&&typeof y==='number'?x-y:String(x??'').localeCompare(String(y??''),'pt-BR',{numeric:true,sensitivity:'base'});return c*opsSort.dir||a.name.localeCompare(b.name,'pt-BR');});
- const display=(r,k)=>k==='name'?esc(r.name):k==='rate'?`<span class="ops-rate"><i style="width:${Math.min(100,r.rate||0)}%"></i></span>${opsFmt(r.rate)}%`:k==='km'?r.kmCovered?`${opsFmt(r.km)} <small class="ops-secondary">${r.kmCovered}/${r.routes} rotas</small>`:'—':opsFmt(r[k]);
+ const sorted=[...opsRows].sort((a,b)=>{const x=a[opsSort.key],y=b[opsSort.key];const c=x==null&&y==null?0:x==null?1:y==null?-1:typeof x==='number'&&typeof y==='number'?x-y:String(x??'').localeCompare(String(y??''),'pt-BR',{numeric:true,sensitivity:'base'});return c*opsSort.dir||a.name.localeCompare(b.name,'pt-BR');});
+ const display=(r,k)=>k==='name'?esc(r.name):r[k]===null?'—':k==='rate'?`<span class="ops-rate"><i style="width:${Math.min(100,r.rate||0)}%"></i></span>${opsFmt(r.rate)}%`:k==='km'?r.kmCovered?`${opsFmt(r.km)} <small class="ops-secondary">${r.kmCovered}/${r.routes} rotas</small>`:'—':opsFmt(r[k]);
  $('ops-drivers').innerHTML='<table class="ops-ranking"><thead><tr><th class="ops-rank-number">#</th>'+opsColumns.map(([k,l])=>`<th><button type="button" class="ops-sort" data-ops-sort="${k}">${esc(l)} <span>${opsSort.key===k?(opsSort.dir===-1?'↓':'↑'):'↕'}</span></button></th>`).join('')+'</tr></thead><tbody>'+sorted.map((r,i)=>`<tr><td class="ops-rank-number">${i+1}</td>`+opsColumns.map(([k])=>`<td>${k==='name'?`<button type="button" class="ops-driver-link" data-ops-detail="${esc(r.key)}">${display(r,k)}</button>`:display(r,k)}</td>`).join('')+'</tr>').join('')+'</tbody></table>';
  $('ops-drivers').querySelectorAll('[data-ops-sort]').forEach(b=>b.onclick=()=>{const k=b.dataset.opsSort;opsSort={key:k,dir:opsSort.key===k?-opsSort.dir:(k==='name'?1:-1)};opsRenderDrivers();});
  $('ops-drivers').querySelectorAll('[data-ops-detail]').forEach(b=>b.onclick=()=>opsRenderDetail(b.dataset.opsDetail));
@@ -273,7 +273,12 @@ async function loadOperationalSummary(){
   const invoices=[];for(let i=0;i<plans.length;i+=25){const part=plans.slice(i,i+25);invoices.push(...await opsFetchPages('pcd_v8_invoices','id,plan_number,invoice_number,customer_code,customer_name,city',q=>q.in('plan_number',part)));}
   const invoiceByPlan=new Map();for(const inv of invoices){const key=String(inv.plan_number||'').trim();if(!invoiceByPlan.has(key))invoiceByPlan.set(key,[]);invoiceByPlan.get(key).push(inv);}
   // Ocorrências encerradas ou abertas podem indicar insucesso; penalizar apenas encerramento REENTREGA/DEVOLUÇÃO.
-  const occ=[];for(let i=0;i<plans.length;i+=25)occ.push(...await opsFetchPages('pcd_v9_occurrences','id,plan_number,customer_code,customer_name,status,closing_result',q=>q.in('plan_number',plans.slice(i,i+25))));
+  // Ocorrências são opcionais para o resumo: falhas de permissão não podem ocultar os indicadores de rotas.
+  const occ=[];let occurrenceWarning='';
+  for(let i=0;i<plans.length;i+=25){
+   try{occ.push(...await opsFetchPages('pcd_v9_occurrences','id,plan_number,customer_code,customer_name,status,closing_result',q=>q.in('plan_number',plans.slice(i,i+25))));}
+   catch(e){occ.length=0;occurrenceWarning='Ocorrências SAC indisponíveis (permissão de leitura).';break;}
+  }
   const occByPlan=new Map();for(const o of occ){const key=String(o.plan_number||'').trim();if(!occByPlan.has(key))occByPlan.set(key,[]);occByPlan.get(key).push(o);}
   // Distâncias já cadastradas na tabela de faixas da operação. Selecionar por cidade, sem estimar geografia inexistente.
   let distances=[],distanceWarning='';try{distances=await opsFetchPages('pcd_billing_city_rates','city,distance_km');}catch(e){distanceWarning='Distâncias não disponíveis: '+e.message;}
@@ -289,7 +294,7 @@ async function loadOperationalSummary(){
    const badCodes=new Set(bad.map(o=>String(o.customer_code||'').trim()).filter(Boolean));
    // Cada cliente com insucesso conta uma entrega afetada; sem código, usar limite conservador por ocorrência.
    const affected=Math.min(expected,Math.max(badCodes.size,bad.filter(o=>!String(o.customer_code||'').trim()).length+badCodes.size));
-   const completed=Math.max(0,expected-affected);
+   const completed=occurrenceWarning?null:Math.max(0,expected-affected);
    // A família é atribuída ao motorista da primeira execução; viagens posteriores contam ao respectivo condutor.
    const first=[...f.routes].sort((a,b)=>String(a.route_date).localeCompare(String(b.route_date)))[0];
    const firstKey=first.driver_id?'id:'+first.driver_id:'name:'+norm(first.driver_name);
@@ -303,23 +308,23 @@ async function loadOperationalSummary(){
     if(km!=null){g.km+=km;g.kmCovered++;}
     opsDetailRows.push({driverKey:key,date:r.route_date,plan:r.plan_number,status:r.route_status,deliveries:r.delivery_count,weight:r.gross_weight,city:r.city||routeInvoices.map(i=>i.city).filter(Boolean).join(', '),km});
    }
-   let g=groups.get(firstKey);if(!g)continue;g.deliveries+=expected;g.completed+=completed;g.occurrences+=affected;g.weight+=Number(root.gross_weight)||0;
+   let g=groups.get(firstKey);if(!g)continue;g.deliveries+=expected;if(completed!==null)g.completed+=completed;g.occurrences+=affected;g.weight+=Number(root.gross_weight)||0;
    for(const c of customers.values()){
     let stat=clientStats.get(c.code);if(!stat){stat={code:c.code,name:c.name,deliveries:0,occurrences:0};clientStats.set(c.code,stat);}stat.deliveries++;
     if(badCodes.has(c.code))stat.occurrences++;
    }
   }
-  opsRows=[...groups.values()].map(g=>({...g,rate:g.deliveries?100*g.completed/g.deliveries:0}));opsRenderDrivers();
+  opsRows=[...groups.values()].map(g=>({...g,completed:occurrenceWarning?null:g.completed,occurrences:occurrenceWarning?null:g.occurrences,rate:occurrenceWarning?null:(g.deliveries?100*g.completed/g.deliveries:0)}));opsRenderDrivers();
   $('ops-detail').classList.add('hidden');
   const sums=(key)=>opsRows.reduce((n,r)=>n+(Number(r[key])||0),0);
-  const cards=[['Viagens executadas',opsFmt(executed.length),'Rotas concluídas e continuidades'],['Entregas únicas',opsFmt(sums('deliveries')),'Sem duplicar continuidades'],['Entregas concluídas*',opsFmt(sums('completed')),'Estimativa pela classificação SAC'],['Insucessos SAC',opsFmt(sums('occurrences')),'Devoluções e reentregas encerradas'],['KM estimados',opsFmt(sums('km')),'Cobertura: '+opsFmt(sums('kmCovered'))+'/'+opsFmt(executed.length)+' rotas']];
+  const cards=[['Viagens executadas',opsFmt(executed.length),'Rotas concluídas e continuidades'],['Entregas únicas',opsFmt(sums('deliveries')),'Sem duplicar continuidades'],['Entregas concluídas*',occurrenceWarning?'—':opsFmt(sums('completed')),occurrenceWarning?'Aguardando acesso ao SAC':'Estimativa pela classificação SAC'],['Insucessos SAC',occurrenceWarning?'—':opsFmt(sums('occurrences')),occurrenceWarning?'Aguardando acesso ao SAC':'Devoluções e reentregas encerradas'],['KM estimados',opsFmt(sums('km')),'Cobertura: '+opsFmt(sums('kmCovered'))+'/'+opsFmt(executed.length)+' rotas']];
   $('ops-kpis').innerHTML=cards.map(([label,value,sub])=>`<div class="ops-metric"><span>${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(sub)}</small></div>`).join('');
   const statuses=new Map(),profiles=new Map();for(const r of data){const st=routeDisplayStatus(r),pf=r.vehicle_profile||'Sem perfil';statuses.set(st,(statuses.get(st)||0)+1);profiles.set(pf,(profiles.get(pf)||0)+1);}
   $('ops-status').innerHTML=table(['Status','Rotas'],[...statuses].sort((a,b)=>b[1]-a[1]));$('ops-profiles').innerHTML=table(['Perfil','Rotas'],[...profiles].sort((a,b)=>b[1]-a[1]));
   const ranked=[...clientStats.values()].filter(x=>x.occurrences).sort((a,b)=>b.occurrences-a.occurrences||a.code.localeCompare(b.code));
-  $('ops-client-ranking').innerHTML=ranked.length?`<div class="scroll"><table class="ops-client-table"><thead><tr><th>Código</th><th>Cliente</th><th>Entregas identificadas</th><th>Insucessos</th><th>Incidência</th></tr></thead><tbody>${ranked.map(x=>`<tr><td>${esc(x.code)}</td><td>${esc(x.name)}</td><td>${opsFmt(x.deliveries)}</td><td>${opsFmt(x.occurrences)}</td><td>${opsFmt(x.deliveries?100*x.occurrences/x.deliveries:0)}%</td></tr>`).join('')}</tbody></table></div>`:'Nenhum insucesso encerrado com código de cliente foi identificado nas rotas executadas do período.';
+  $('ops-client-ranking').innerHTML=occurrenceWarning?'<p class="muted">Ranking de insucessos temporariamente indisponível: falta permissão de leitura das ocorrências no Supabase.</p>':ranked.length?`<div class="scroll"><table class="ops-client-table"><thead><tr><th>Código</th><th>Cliente</th><th>Entregas identificadas</th><th>Insucessos</th><th>Incidência</th></tr></thead><tbody>${ranked.map(x=>`<tr><td>${esc(x.code)}</td><td>${esc(x.name)}</td><td>${opsFmt(x.deliveries)}</td><td>${opsFmt(x.occurrences)}</td><td>${opsFmt(x.deliveries?100*x.occurrences/x.deliveries:0)}%</td></tr>`).join('')}</tbody></table></div>`:'Nenhum insucesso encerrado com código de cliente foi identificado nas rotas executadas do período.';
   topKpiUpdate('operational-summary',[topNum(data.length),topNum(data.filter(r=>norm(r.route_status)==='PROGRAMADO').length),topNum(data.filter(r=>norm(r.route_status)==='EMROTA').length),topNum(executed.length),topNum(data.filter(r=>norm(r.route_status)==='NAOEMBARCOU').length),topNum(sums('deliveries'))]);
-  info.textContent=`${opsFmt(data.length)} rotas consultadas · ${opsFmt(executed.length)} executadas · ${opsFmt(opsRows.length)} motoristas${distanceWarning?' · '+distanceWarning:''}`;
+  info.textContent=`${opsFmt(data.length)} rotas consultadas · ${opsFmt(executed.length)} executadas · ${opsFmt(opsRows.length)} motoristas${occurrenceWarning?' · '+occurrenceWarning:''}${distanceWarning?' · '+distanceWarning:''}`;
  }catch(e){info.textContent='Não foi possível atualizar o resumo: '+e.message;throw e;}
 }
 $('ops-filter').onclick=()=>loadOperationalSummary().catch(e=>message(e.message,true));
