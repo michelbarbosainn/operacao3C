@@ -301,6 +301,27 @@ async function loadOperationalSummary(){
   if(failedPlans.length){
    occurrenceWarning='Consulta SAC incompleta: '+failedPlans.length+' de '+normalizedPlans.length+' planos sem leitura. '+failedPlans[0];
   }
+  // V18.4: a listagem SAC pode omitir o resultado de encerramento.
+  // Consultar o histórico da própria ocorrência (RPC já utilizada na Gestão SAC)
+  // para obter status e closing_result, sem acesso direto à tabela protegida.
+  const needsHistory=occ.filter(o=>Number.isSafeInteger(Number(o.id))&&Number(o.id)>0&&(!o.closing_result||!o.status));
+  const historyFailures=[];let historyCursor=0;
+  const historyWorker=async()=>{
+   while(historyCursor<needsHistory.length){
+    const o=needsHistory[historyCursor++];
+    try{
+     const h=await rpc('pcd_v92_history',{p_occurrence_id:Number(o.id)});
+     if(!h||typeof h!=='object')throw Error('Histórico sem dados');
+     o.status=h.status??h.occurrence?.status??o.status;
+     o.closing_result=h.closing_result??h.occurrence?.closing_result??o.closing_result;
+     if(norm(o.status)==='ENCERRADA'&&!o.closing_result)throw Error('Resultado de encerramento ausente');
+    }catch(e){historyFailures.push('OC-'+String(o.id).padStart(6,'0')+': '+e.message);}
+   }
+  };
+  await Promise.all(Array.from({length:Math.min(4,needsHistory.length)},()=>historyWorker()));
+  if(historyFailures.length){
+   occurrenceWarning=[occurrenceWarning,'Histórico SAC incompleto: '+historyFailures.length+' ocorrência(s). '+historyFailures[0]].filter(Boolean).join(' · ');
+  }
   // Uma lista vazia pode ser legítima: não equivale a falha de permissão.
   // A conferência de OC-000025 usa a mesma RPC do SAC, sem consultas diretas à tabela.
   let oc25Diagnostic='';
