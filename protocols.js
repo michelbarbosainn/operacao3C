@@ -30,7 +30,7 @@ function render(){
  $('pr-add').disabled=isExisting||active>=MAX_ITEMS;
  $('pr-add-nf').disabled=active>=MAX_ITEMS;
  $('pr-save').disabled=isExisting;
- $('pr-number').readOnly=isExisting;
+ $('pr-number').readOnly=true;
  $('pr-current').textContent=$('pr-number').value.trim()||'Novo';
  $('pr-revision').classList.toggle('hidden',!isExisting);
  info(`${rows.length} registro(s) na grade · ${active} ativo(s). ${isExisting?'Protocolo fechado: alterações somente por retificação.':'Confira antes de salvar.'}`);
@@ -40,8 +40,15 @@ function readGrid(){if(isExisting)return;rows=[...$('pr-rows').querySelectorAll(
 function parseGrid(data){if(!data.length)throw Error('Arquivo vazio.');let header=data[0].map(v=>String(v??'').trim());const norm=v=>String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');let indexes=labels.map(l=>header.findIndex(h=>norm(h)===norm(l)));if(indexes.some(i=>i<0))throw Error('O arquivo deve conter as oito colunas originais do relatório 3 Corações. Ausente: '+labels[indexes.indexOf(-1)]);const out=data.slice(1).filter(r=>r.some(x=>String(x??'').trim())).map(r=>Object.fromEntries(fields.map((f,i)=>[f,String(r[indexes[i]]??'').trim()])));if(!out.length)throw Error('Nenhuma nota encontrada.');return out;}
 function parseDelimited(txt){const first=txt.split(/\r?\n/)[0];const sep=first.includes('\t')?'\t':first.includes(';')?';':',';const result=[];let row=[],cell='',quoted=false;for(let i=0;i<txt.length;i++){const c=txt[i];if(c==='"'){if(quoted&&txt[i+1]==='"'){cell+='"';i++;}else quoted=!quoted;}else if(c===sep&&!quoted){row.push(cell);cell='';}else if((c==='\r'||c==='\n')&&!quoted){if(c==='\r'&&txt[i+1]==='\n')i++;row.push(cell);if(row.some(v=>v.trim()))result.push(row);row=[];cell='';}else cell+=c;}row.push(cell);if(row.some(v=>v.trim()))result.push(row);return result;}
 async function importFile(){try{const f=$('pr-file').files[0];let data;if(f){if(/\.xlsx$/i.test(f.name)){if(!window.XLSX)throw Error('Leitor Excel indisponível. Cole as linhas na caixa de texto.');const book=window.XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:false});const sheet=book.Sheets[book.SheetNames[0]];data=window.XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:false});}else data=parseDelimited(await f.text());}else data=parseDelimited($('pr-paste').value);readGrid();rows.push(...parseGrid(data));render();}catch(e){info('Erro: '+e.message);}}
+const PROTOCOL_FIRST_NUMBER=939;
+async function nextProtocolNumber(){
+ const {data,error}=await db.rpc('pcd_protocol_next_number');
+ if(error){$('pr-number').value='';$('pr-current').textContent='Sequência indisponível';info('Não foi possível consultar a sequência. Execute INSTALAR_NUMERACAO_PROTOCOLOS.sql. '+error.message);return;}
+ $('pr-number').value=data;$('pr-current').textContent=data;
+}
+async function newProtocol(){currentId=null;isExisting=false;rows=[];$('pr-number').value='';$('pr-date').value=new Date().toLocaleDateString('en-CA');render();await nextProtocolNumber();$('pr-invoice').focus();}
 function validate(){readGrid();const num=$('pr-number').value.trim();if(!/^INNOVA[0-9]+$/i.test(num))throw Error('Informe um protocolo no padrão INNOVA944.');if(!dateISO($('pr-date').value))throw Error('Informe a data do protocolo.');if(!rows.length)throw Error('Adicione pelo menos uma nota.');if(rows.length>MAX_ITEMS)throw Error('Limite de 50 canhotos por protocolo.');return {number:num.toUpperCase(),date:$('pr-date').value,items:rows.map((r,i)=>{if(!r.invoice_number||!r.customer_code||!r.plan_number)throw Error(`Linha ${i+1}: NF, cliente e ordem de frete são obrigatórios.`);return {invoice_number:r.invoice_number,invoiced_on:dateISO(r.invoiced_on),customer_code:r.customer_code,customer_name:r.customer_name||null,plan_number:r.plan_number,city:r.city||null,gross_weight:number(r.gross_weight),invoice_value:number(r.invoice_value),line_no:i+1};})};}
-async function save(){try{if(isExisting)throw Error('Protocolo fechado: utilize retificação, não o salvamento.');const v=validate();if(!confirm(`Salvar ${v.items.length} nota(s) no protocolo ${v.number}?`))return;const {data,error}=await db.rpc('pcd_protocol_save',{p_number:v.number,p_date:v.date,p_items:v.items});if(error)throw error;currentId=data;isExisting=true;render();info(`Protocolo ${v.number} salvo com ${v.items.length} nota(s).`);await loadHistory();}catch(e){info('Não foi possível salvar: '+e.message+' Confira se o SQL de instalação foi executado.');}}
+async function save(){try{if(isExisting)throw Error('Protocolo fechado: utilize retificação, não o salvamento.');const v=validate();if(!confirm(`Salvar ${v.items.length} nota(s) no protocolo ${v.number}?`))return;const {data,error}=await db.rpc('pcd_protocol_save_auto',{p_date:v.date,p_items:v.items});if(error)throw error;currentId=data.id;$('pr-number').value=data.number;isExisting=true;render();info(`Protocolo ${data.number} salvo com ${v.items.length} nota(s).`);await loadHistory();}catch(e){info('Não foi possível salvar: '+e.message+' Confira se o SQL de instalação foi executado.');}}
 async function loadHistory(){try{const {data,error}=await db.from('pcd_protocols').select('id,protocol_number,protocol_date,created_at,pcd_protocol_items(id,invoice_number,item_status,added_after_close)').order('created_at',{ascending:false}).limit(300);if(error)throw error;history=data||[];$('pr-total').textContent=history.length.toLocaleString('pt-BR');$('pr-items-total').textContent=history.reduce((a,r)=>a+(r.pcd_protocol_items?.filter(x=>x.item_status!=='INATIVO').length||0),0).toLocaleString('pt-BR');$('pr-revisions-total').textContent=history.reduce((a,r)=>a+(r.pcd_protocol_items?.filter(x=>x.item_status==='INATIVO'||x.added_after_close).length||0),0).toLocaleString('pt-BR');renderHistory();}catch(e){$('pr-history').textContent='Histórico indisponível: '+e.message;}}
 function renderHistory(){const q=$('pr-search').value.trim().toLowerCase().replace(/^0+/,'');const found=history.filter(r=>!q||r.protocol_number.toLowerCase().includes(q)||r.pcd_protocol_items?.some(i=>String(i.invoice_number).replace(/^0+/,'').includes(q)));$('pr-history').innerHTML='<table><thead><tr><th>Protocolo</th><th>Data</th><th>Notas</th><th>Ação</th></tr></thead><tbody>'+found.map(r=>`<tr><td>${esc(r.protocol_number)}</td><td>${esc(dateBR(r.protocol_date))}</td><td>${r.pcd_protocol_items?.filter(x=>x.item_status!=='INATIVO').length||0}</td><td><button class="secondary small" data-open="${r.id}">Abrir</button></td></tr>`).join('')+'</tbody></table>'+(found.length?'':'Nenhum protocolo encontrado.');}
 async function openProtocol(id){try{const {data,error}=await db.from('pcd_protocols').select('id,protocol_number,protocol_date,pcd_protocol_items(*)').eq('id',id).single();if(error)throw error;currentId=data.id;isExisting=true;$('pr-number').value=data.protocol_number;$('pr-date').value=data.protocol_date;rows=(data.pcd_protocol_items||[]).sort((a,b)=>a.line_no-b.line_no).map(r=>({...Object.fromEntries(fields.map(k=>[k,r[k]??''])),id:r.id,item_status:r.item_status,added_after_close:r.added_after_close}));await checkPriorForRows();render();await loadAudit();window.scrollTo({top:0,behavior:'smooth'});}catch(e){info('Erro ao abrir protocolo: '+e.message);}}
@@ -74,14 +81,34 @@ async function checkPriorForRows(){
  if(error)return;
  for(const r of rows)r.prior_protocols=[...new Set((data||[]).filter(x=>x.protocol_id!==currentId&&normalizeNF(x.invoice_number)===normalizeNF(r.invoice_number)).map(x=>x.pcd_protocols?.protocol_number).filter(Boolean))];
 }
+function protocolDialog({title,body,confirmLabel='Excluir registro'}){
+ return new Promise(resolve=>{
+  const overlay=$('pr-modal'),dialog=overlay.querySelector('.pr-modal-dialog');
+  $('pr-modal-title').textContent=title;
+  $('pr-modal-body').innerHTML=body;
+  $('pr-modal-remove').textContent=confirmLabel;
+  overlay.classList.remove('hidden');
+  const previous=document.activeElement;
+  const done=value=>{overlay.classList.add('hidden');overlay.removeEventListener('keydown',onKey);overlay.removeEventListener('click',onOutside);$('pr-modal-remove').onclick=null;$('pr-modal-keep').onclick=null;$('pr-modal-close').onclick=null;previous?.focus?.();resolve(value);};
+  const onKey=e=>{if(e.key==='Escape'){e.preventDefault();done(false);}if(e.key==='Tab'){const buttons=[...dialog.querySelectorAll('button')];if(e.shiftKey&&document.activeElement===buttons[0]){e.preventDefault();buttons.at(-1).focus();}else if(!e.shiftKey&&document.activeElement===buttons.at(-1)){e.preventDefault();buttons[0].focus();}}};
+  const onOutside=e=>{if(e.target===overlay)done(false);};
+  $('pr-modal-remove').onclick=()=>done(true);$('pr-modal-keep').onclick=()=>done(false);$('pr-modal-close').onclick=()=>done(false);
+  overlay.addEventListener('keydown',onKey);overlay.addEventListener('click',onOutside);$('pr-modal-keep').focus();
+ });
+}
 async function showDuplicateAlert(index){
  const r=rows[index];if(!r)return;
- const dup=rows.filter((x,i)=>i!==index&&x.item_status!=='INATIVO'&&normalizeNF(x.invoice_number)===normalizeNF(r.invoice_number)).length;
+ const dup=rows.some((x,i)=>i!==index&&x.item_status!=='INATIVO'&&normalizeNF(x.invoice_number)===normalizeNF(r.invoice_number));
  const prior=r.prior_protocols||[];
- const text=`NF ${r.invoice_number}\n${dup?'Este canhoto já consta neste protocolo.\n':''}${prior.length?'Já consta em protocolo(s) anterior(es): '+prior.join(', ')+'.\n':''}Recomenda-se conferir o documento físico. Se optar por excluir/inativar, RETIRE TAMBÉM O CANHOTO FÍSICO DO PROTOCOLO.\n\nOK: excluir/inativar este registro agora.\nCancelar: manter o canhoto.`;
- if(!confirm(text))return;
+ const body=`<p class="pr-modal-nf">Nota fiscal ${esc(r.invoice_number)}</p>`+
+  (dup?'<p>Este canhoto <strong>já consta neste protocolo</strong>.</p>':'')+
+  (prior.length?`<p>Já registrado anteriormente em: <strong>${esc(prior.join(', '))}</strong>.</p>`:'')+
+  '<p class="pr-modal-warning">Se optar pela exclusão, <strong>retire também o canhoto físico do protocolo</strong>. A decisão de manter o documento é sua.</p>';
+ const remove=await protocolDialog({title:'Canhoto já registrado',body,confirmLabel:isExisting?'Inativar registro':'Excluir registro'});
+ if(!remove)return;
  if(isExisting)await reviseInactivate(index);else{readGrid();rows.splice(index,1);render();}
 }
+
 async function loadAudit(){
  const el=$('pr-audit');if(!currentId){el.textContent='';return;}
  const {data,error}=await db.from('pcd_protocol_item_audit').select('action,reason,changed_at,item_id').eq('protocol_id',currentId).order('changed_at',{ascending:false});
@@ -135,11 +162,11 @@ $('pr-rows').addEventListener('click',async e=>{
  const c=e.target.closest('[data-inactivate]');if(c){await reviseInactivate(Number(c.dataset.inactivate));}
 });
 $('pr-number').addEventListener('input',()=>{$('pr-current').textContent=$('pr-number').value||'Novo';});
-$('pr-new').onclick=()=>{currentId=null;isExisting=false;rows=[];$('pr-number').value='';$('pr-date').value=new Date().toLocaleDateString('en-CA');render();};
+$('pr-new').onclick=()=>newProtocol();
 $('pr-add').onclick=()=>{readGrid();if(rows.length>=MAX_ITEMS){info('Limite de 50 canhotos por protocolo.');return;}rows.push(Object.fromEntries(fields.map(k=>[k,''])));render();};
 $('pr-save').onclick=save;$('pr-pdf').onclick=pdf;$('pr-csv').onclick=csv;$('pr-refresh').onclick=loadHistory;$('pr-find').onclick=renderHistory;
 $('pr-history').onclick=e=>{const b=e.target.closest('[data-open]');if(b)openProtocol(b.dataset.open);};
-window.addEventListener('innova-protocols-open',()=>{if(!$('pr-date').value)$('pr-date').value=new Date().toLocaleDateString('en-CA');loadHistory();});
+window.addEventListener('innova-protocols-open',()=>{if(!$('pr-date').value)$('pr-date').value=new Date().toLocaleDateString('en-CA');loadHistory();if(!isExisting&&!$('pr-number').value)nextProtocolNumber();});
 
 // Destinatários de protocolos: cadastro independente dos destinatários do SAC.
 const recOcc=$('recipient-occ-panel'),recProto=$('recipient-protocol-panel');
@@ -167,3 +194,6 @@ $('pr-rec-add').onclick=async()=>{
  if(error){$('pr-rec-feedback').textContent='Não foi possível cadastrar: '+error.message;return;}
  $('pr-rec-name').value='';$('pr-rec-email').value='';$('pr-rec-feedback').textContent='Destinatário salvo.';loadProtocolRecipients();
 };
+
+// Previsualização do próximo número ao iniciar o módulo.
+if($('pr-number')&&!$('pr-number').value)nextProtocolNumber();

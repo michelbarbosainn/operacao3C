@@ -690,3 +690,14 @@ body:has(#panel-protocols:not(.hidden)) #innova-top-kpis{display:none!important}
 #panel-protocols .pr-kpi{border-top-color:#0a5798}
 #panel-protocols .pr-kpi:nth-child(2){border-top-color:#149b82}
 #panel-protocols .pr-kpi:nth-child(4){border-top-color:#e5a038}
+
+/* Protocolos · confirmação visual no padrão INNOVA */
+.pr-modal{position:fixed;inset:0;background:rgba(8,27,49,.57);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(2px)}
+.pr-modal.hidden{display:none!important}.pr-modal-dialog{width:min(100%,490px);background:#fff;border:1px solid #d8e4ef;border-top:4px solid #dc7c29;border-radius:15px;box-shadow:0 24px 70px rgba(4,22,45,.26);overflow:hidden;color:#173650}
+.pr-modal-head{display:flex;align-items:center;gap:12px;padding:19px 20px 12px}.pr-modal-head h3{margin:0;font-size:17px;color:#0b345b}.pr-modal-kicker{font-size:10px;letter-spacing:.06em;color:#7890a5;margin:3px 0 0}
+.pr-modal-symbol{background:#fff0e3;color:#b95b12;width:37px;height:37px;display:grid;place-items:center;border-radius:10px;font-weight:800;font-size:22px}
+.pr-modal-close{margin-left:auto!important;background:#f1f5f9!important;color:#46617b!important;border:0!important;width:30px;height:30px;padding:0!important;font-size:19px!important;border-radius:8px!important}
+.pr-modal-body{padding:5px 20px 17px;font-size:13px;line-height:1.55}.pr-modal-body p{margin:7px 0}.pr-modal-nf{font-size:15px;font-weight:650;color:#0c4576}.pr-modal-warning{background:#fff6ed;border:1px solid #f4d7bc;border-radius:9px;padding:10px 12px;margin-top:12px!important;color:#794016}
+.pr-modal-actions{display:flex;gap:9px;justify-content:flex-end;padding:13px 20px 19px;border-top:1px solid #edf1f5}.pr-modal-danger{background:#b83f39!important;border-color:#b83f39!important;color:#fff!important}.pr-modal-actions button{font-size:12px!important}
+#pr-number[readonly]{background:#f1f6fb;color:#174b76;font-weight:600;cursor:default}
+@media(max-width:540px){.pr-modal-actions{flex-direction:column}.pr-modal-actions button{width:100%}}
