@@ -114,7 +114,21 @@ async function reviseAdd(){
 }
 $('pr-revision-add').onclick=reviseAdd;
 $('pr-add-nf').onclick=addInvoice;
-$('pr-invoice').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addInvoice();}});
+// Captura o Enter antes de outros atalhos globais e mantém o foco para digitação contínua.
+const protocolInvoiceInput=$('pr-invoice');
+protocolInvoiceInput.addEventListener('keydown',e=>{
+ if(e.key!=='Enter'||e.isComposing||e.repeat)return;
+ e.preventDefault();
+ e.stopPropagation();
+ if(protocolInvoiceInput.disabled)return;
+ addInvoice().catch(err=>{
+  console.error('Falha ao adicionar NF pelo Enter',err);
+  info('Falha ao adicionar NF: '+(err?.message||String(err)));
+  protocolInvoiceInput.disabled=false;
+  $('pr-add-nf').disabled=false;
+  protocolInvoiceInput.focus();
+ });
+},true);
 $('pr-rows').addEventListener('click',async e=>{
  const a=e.target.closest('[data-alert]');if(a){await showDuplicateAlert(Number(a.dataset.alert));return;}
  const b=e.target.closest('[data-remove]');if(b){readGrid();rows.splice(Number(b.dataset.remove),1);render();return;}
