@@ -652,3 +652,41 @@ body:has(#panel-protocols:not(.hidden)) #innova-top-kpis{display:none!important}
 #panel-protocols .pr-grid tbody tr:first-child{background:#f0f7ff}
 @media(max-width:900px){#panel-protocols .pr-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){#panel-protocols .pr-entry{padding:12px}#panel-protocols .pr-entry-heading h3{font-size:15px}#panel-protocols .pr-entry-counter{font-size:10px}}
+
+/* INNOVA | Borda superior dos indicadores — padrão global v22.4
+   Escopo limitado a cartões KPI; não altera tabelas, filtros ou formulários. */
+#innova-top-kpis > .stat,
+#route-summary > .v13-card,
+.v13-summary > .v13-card,
+#ops-kpis > .ops-metric,
+.gmail-metrics > *,
+.billing-stats > *,
+.occ-stats > * {
+  border-top:3px solid #0a5798;
+  box-sizing:border-box;
+}
+#innova-top-kpis > .stat:nth-child(4n+2),
+#route-summary > .v13-card:nth-child(4n+2),
+.v13-summary > .v13-card:nth-child(4n+2),
+#ops-kpis > .ops-metric:nth-child(4n+2),
+.gmail-metrics > :nth-child(4n+2),
+.billing-stats > :nth-child(4n+2),
+.occ-stats > :nth-child(4n+2) { border-top-color:#149b82; }
+#innova-top-kpis > .stat:nth-child(4n+3),
+#route-summary > .v13-card:nth-child(4n+3),
+.v13-summary > .v13-card:nth-child(4n+3),
+#ops-kpis > .ops-metric:nth-child(4n+3),
+.gmail-metrics > :nth-child(4n+3),
+.billing-stats > :nth-child(4n+3),
+.occ-stats > :nth-child(4n+3) { border-top-color:#0a5798; }
+#innova-top-kpis > .stat:nth-child(4n),
+#route-summary > .v13-card:nth-child(4n),
+.v13-summary > .v13-card:nth-child(4n),
+#ops-kpis > .ops-metric:nth-child(4n),
+.gmail-metrics > :nth-child(4n),
+.billing-stats > :nth-child(4n),
+.occ-stats > :nth-child(4n) { border-top-color:#e5a038; }
+/* Preserva as cores específicas já aprovadas na tela de Protocolos. */
+#panel-protocols .pr-kpi{border-top-color:#0a5798}
+#panel-protocols .pr-kpi:nth-child(2){border-top-color:#149b82}
+#panel-protocols .pr-kpi:nth-child(4){border-top-color:#e5a038}
