@@ -406,6 +406,23 @@ async function updateSACOccurrenceKpi(filtered){
  const previous=topKpiCache.get('sac')||[];
  if(previous.length===6){previous[5]=value==='—'?'—':topNum(value);topKpiUpdate('sac',previous);}
 }
+async function sacPlansForInvoice(raw){
+ const digits=String(raw||'').replace(/\D/g,'');
+ if(!digits)return null;
+ const clean=digits.replace(/^0+/,'')||'0';
+ const candidates=[...new Set([digits,clean,digits.padStart(9,'0')])];
+ const {data,error}=await db.from('pcd_v8_invoices').select('plan_number,invoice_number').in('invoice_number',candidates);
+ if(error)throw new Error('Consulta da NF: '+error.message);
+ const plans=new Set((data||[]).map(x=>String(x.plan_number||'').trim()).filter(Boolean));
+ if(!plans.size){
+  const {data:more,error:err}=await db.from('pcd_v8_invoices').select('plan_number,invoice_number').ilike('invoice_number','%'+clean+'%').limit(500);
+  if(err)throw new Error('Busca complementar da NF: '+err.message);
+  for(const item of more||[]){
+   if((String(item.invoice_number||'').replace(/\D/g,'').replace(/^0+/,'')||'0')===clean && item.plan_number)plans.add(String(item.plan_number).trim());
+  }
+ }
+ return plans;
+}
 async function loadRoutes(which){
  const prefix=which==='sac'?'sac':'route';
  const search=$(prefix+'-search').value.trim();
@@ -423,8 +440,10 @@ async function loadRoutes(which){
   // V13.25: filtrar o conjunto inteiro ANTES da paginação (evita páginas vazias e totais incorretos).
   const routeDate=$('sac-date').value,requestDate=$('sac-request-date').value,driver=norm($('sac-driver').value);
   const selectedStatuses=selectedSACStatuses();
+  const invoicePlans=await sacPlansForInvoice($('sac-invoice')?.value);
   const all=await v13FetchAll(search);
-  const filtered=all.filter(r=>(!routeDate||String(r.route_date||'').slice(0,10)===routeDate)&&(!requestDate||String(r.request_date||'').slice(0,10)===requestDate)&&(!profileFilter||norm(r.vehicle_profile)===norm(profileFilter))&&(!selectedStatuses.length||selectedStatuses.includes(routeDisplayStatus(r)))&&(!driver||norm(r.driver_name).includes(driver)));
+  const filtered=all.filter(r=>(invoicePlans===null||invoicePlans.has(String(r.plan_number||'').trim()))&&(!routeDate||String(r.route_date||'').slice(0,10)===routeDate)&&(!requestDate||String(r.request_date||'').slice(0,10)===requestDate)&&(!profileFilter||norm(r.vehicle_profile)===norm(profileFilter))&&(!selectedStatuses.length||selectedStatuses.includes(routeDisplayStatus(r)))&&(!driver||norm(r.driver_name).includes(driver)));
+  if(invoicePlans!==null&&!invoicePlans.size)message('NF não localizada na base de notas fiscais importadas.',true);
   totals.sac=filtered.length;
   const countStatus=name=>filtered.filter(r=>routeDisplayStatus(r)===name).length;
   const sacCards=[['Rotas acompanhadas',filtered.length],['Em rota',countStatus('EM ROTA')],['Concluídas',countStatus('CONCLUÍDO')],['Não embarcaram',countStatus('NÃO EMBARCOU')],['Entregas previstas',filtered.reduce((n,r)=>n+(Number(r.delivery_count)||0),0)],['Ocorrências','—']];
