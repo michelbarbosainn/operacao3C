@@ -696,7 +696,49 @@ function convert(obj){const get=n=>{const key=Object.keys(obj).find(k=>norm(k)==
 $('preview').onclick=async()=>{try{const raw=$('paste').value.trim();if(!raw)throw Error('Cole as rotas com o cabeçalho.');const sep=raw.split(/\r?\n/)[0].includes('\t')?'\t':',';const m=parseDelimited(raw,sep),head=m.shift().map(x=>x.trim());if(!head.some(x=>norm(x)==='PLANO')||!head.some(x=>norm(x)==='DATACAR'))throw Error('Inclua o cabeçalho PLANO e DATA CAR.');pending=m.filter(r=>r.some(v=>v.trim())).map((r,i)=>{try{return convert(Object.fromEntries(head.map((h,j)=>[h,r[j]||''])));}catch(e){throw Error(`Linha ${i+2}: ${e.message}`);}}).filter(Boolean);if(!pending.length||pending.length>1000)throw Error('Envie entre 1 e 1000 rotas.');checks=await rpc('pcd_v5_check_import',{p_rows:pending});const tbody=pending.map((r,i)=>[r.plan_number,r.loading_on,r.city,r.vehicle_profile,r.driver_name,checks[i].duplicate?'DUPLICADA':'NOVA','']);$('import-preview').innerHTML=table(['Plano','Data','Cidade','Perfil','Motorista','Análise','Decisão'],tbody);$('import-preview').querySelectorAll('tbody tr').forEach((tr,i)=>{const cell=tr.lastElementChild;if(checks[i].duplicate){const select=document.createElement('select');select.dataset.index=i;select.innerHTML='<option value="">Escolha...</option><option value="REENTREGA">Reentrega</option><option value="DUPLICADA_INATIVA">Duplicada — inativa</option><option value="NAO_EMBARCOU_REPROGRAMAR">Não embarcou — reprogramar</option>';select.onchange=()=>{let note=cell.querySelector('.v1322-reason');if(select.value==='NAO_EMBARCOU_REPROGRAMAR'){if(!note){note=document.createElement('textarea');note.className='v1322-reason';note.placeholder='Justificativa obrigatória (ex.: veículo quebrado na rota anterior)';note.maxLength=1000;note.rows=2;note.oninput=validateImport;cell.append(note);}}else if(note){note.remove();}validateImport();};cell.append(select);}else cell.textContent='Nova rota';});$('import-count').textContent=`${pending.length} rota(s) · ${checks.filter(x=>x.duplicate).length} duplicada(s)`;validateImport();message('Confira a análise. Duplicidades exigem decisão antes de salvar.');}catch(e){pending=[];checks=[];$('import-save').disabled=true;message(e.message,true);}};
 function validateImport(){$('import-save').disabled=!pending.length||[...$('import-preview').querySelectorAll('select[data-index]')].some(s=>!s.value||(s.value==='NAO_EMBARCOU_REPROGRAMAR'&&!s.parentElement.querySelector('.v1322-reason')?.value.trim()));}
 $('paste').oninput=()=>{$('import-save').disabled=true;pending=[];};
-$('import-save').onclick=async()=>{try{const decisions=Object.fromEntries([...$('import-preview').querySelectorAll('select[data-index]')].map(s=>[Number(s.dataset.index),s.value]));const payload=pending.map((r,i)=>({...r,decision:decisions[i]||'NOVO',reprogram_reason:decisions[i]==='NAO_EMBARCOU_REPROGRAMAR'?($('import-preview').querySelector(`select[data-index=\"${i}\"]`)?.parentElement.querySelector('.v1322-reason')?.value.trim()||''):undefined}));if(!confirm(`Confirmar importação de ${payload.length} rotas?`))return;$('import-save').disabled=true;const a=await rpc('pcd_v8_import',{p_rows:payload});$('paste').value='';$('import-preview').innerHTML='';pending=[];await refreshMetrics();message(`Importação salva. Novas: ${a.new} · Reentregas: ${a.redeliveries} · Não embarcou/reprogramado: ${a.no_board_reprogrammed||0} · Duplicadas inativas: ${a.inactive_duplicates}.`);await refreshHealth();}catch(e){message(e.message,true);}finally{$('import-save').disabled=!pending.length;}};
+// Confirmação coletiva de feriado — uma decisão para todo o lote.
+function holidayBR(iso){return String(iso).split('-').reverse().join('/');}
+function holidayWeekday(iso){return new Intl.DateTimeFormat('pt-BR',{weekday:'short',timeZone:'UTC'}).format(new Date(iso+'T12:00:00Z'));}
+function askImportHoliday(preview,count){
+ return new Promise(resolve=>{
+  const modalEl=$('holiday-import-modal');
+  const expected=preview.expected_date;
+  const options=Array.isArray(preview.options)?preview.options:[];
+  let selected=options.find(x=>!x.weekend&&!x.holiday)?.date||options[0]?.date||expected;
+  const originalSelected=()=>selected===expected;
+  const reasonEl=$('holiday-import-reason');reasonEl.value='';
+  $('holiday-import-date').textContent=holidayBR(expected)+' · '+holidayWeekday(expected);
+  $('holiday-import-name').textContent=preview.holiday||'Dia não operacional';
+  $('holiday-import-description').textContent=`${count} rota(s) desta importação estão previstas para esta data. Deseja alterar todas de uma única vez?`;
+  const finish=(value)=>{modalEl.classList.add('hidden');$('holiday-import-confirm').onclick=null;$('holiday-import-keep').onclick=null;$('holiday-import-close').onclick=null;resolve(value);};
+  function draw(){
+   $('holiday-import-options').innerHTML=options.map(o=>`<button type="button" class="holiday-import-option ${o.date===selected?'is-selected':''}" data-holiday-date="${esc(o.date)}"><span class="weekday">${esc(holidayWeekday(o.date))}</span><span class="day">${esc(o.date.slice(-2))}</span><span class="flag">${esc(o.holiday?'Feriado':o.weekend?'Fim sem.':'Dia útil')}</span></button>`).join('');
+   $('holiday-import-options').querySelectorAll('[data-holiday-date]').forEach(b=>b.onclick=()=>{selected=b.dataset.holidayDate;draw();});
+   const opt=options.find(x=>x.date===selected);
+   $('holiday-import-summary').textContent=`${count} rota(s): ${holidayBR(expected)} → ${holidayBR(selected)}${opt?.holiday?' · '+opt.holiday:''}`;
+  }
+  $('holiday-import-confirm').onclick=()=>{
+   const opt=options.find(x=>x.date===selected),reason=reasonEl.value.trim();
+   if((originalSelected()||opt?.weekend||opt?.holiday)&&reason.length<10){alert('Informe justificativa de pelo menos 10 caracteres para a exceção.');return;}
+   finish({date:selected,reason});
+  };
+  $('holiday-import-keep').onclick=()=>{
+   selected=expected;
+   const reason=reasonEl.value.trim();
+   if(reason.length<10){alert('Para manter a data do feriado, informe justificativa de pelo menos 10 caracteres.');return;}
+   finish({date:expected,reason});
+  };
+  $('holiday-import-close').onclick=()=>finish(null);
+  draw();modalEl.classList.remove('hidden');
+ });
+}
+
+$('import-save').onclick=async()=>{try{const decisions=Object.fromEntries([...$('import-preview').querySelectorAll('select[data-index]')].map(s=>[Number(s.dataset.index),s.value]));const payload=pending.map((r,i)=>({...r,decision:decisions[i]||'NOVO',reprogram_reason:decisions[i]==='NAO_EMBARCOU_REPROGRAMAR'?($('import-preview').querySelector(`select[data-index=\"${i}\"]`)?.parentElement.querySelector('.v1322-reason')?.value.trim()||''):undefined}));const calendar=await rpc('pcd_v8_import_calendar_preview');
+ let decision={date:calendar.expected_date,reason:''};
+ if(calendar.holiday){decision=await askImportHoliday(calendar,payload.length);if(!decision)return;}
+ else if(!confirm(`Confirmar importação de ${payload.length} rotas para ${holidayBR(calendar.expected_date)}?`))return;
+ $('import-save').disabled=true;
+ const a=await rpc('pcd_v8_import_calendar',{p_rows:payload,p_expected_date:calendar.expected_date,p_selected_date:decision.date,p_reason:decision.reason});$('paste').value='';$('import-preview').innerHTML='';pending=[];await refreshMetrics();message(`Importação salva. Novas: ${a.new} · Reentregas: ${a.redeliveries} · Não embarcou/reprogramado: ${a.no_board_reprogrammed||0} · Duplicadas inativas: ${a.inactive_duplicates}.`);await refreshHealth();}catch(e){message(e.message,true);}finally{$('import-save').disabled=!pending.length;}};
 // V8: seleção na própria linha, com confirmação para rota adicional
 async function inlineAssign(r,cell){
  try{
