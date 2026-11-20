@@ -528,6 +528,9 @@ async function loadRoutes(which){
    });
   }catch(e){console.warn('GreenMile nao disponivel:',e.message);}
  }
+ // Atualizar apenas a coluna visivel; sem gravacao no Supabase.
+ // No SAC, executar apos reordenar as colunas (abaixo).
+ if(which==='routes')void fillOperationalValues(target,data,which);
  // V13.43: reorganizar apenas a apresentacao SAC DEPOIS de configurar
  // os controles, preservando os indices originais usados pelos eventos.
  if(which==='sac'){
@@ -538,6 +541,7 @@ async function loadRoutes(which){
    order.forEach(index=>tr.appendChild(cells[index]));
   };
   target.querySelectorAll('thead tr,tbody tr').forEach(reorder);
+  void fillOperationalValues(target,data,which);
  }
  {
   // Indicadores carregados somente para os planos da pagina visivel; limite de concorrencia.
@@ -768,6 +772,37 @@ async function invoicesForOperationalRoute(r){
  const invoices=[...unique.values()];
  if(invoices.some(n=>!String(n.plan_number||'').trim()))throw Error('Nota sem plano original: necessario validar antes de registrar ocorrencia.');
  return {invoices,originalPlans:[...new Set(invoices.map(n=>String(n.plan_number).trim()))],numbers};
+}
+// V13.71: valor informativo das NFs em rotas identificadas por numeros de notas.
+// Nao altera o cadastro, faturamento ou qualquer valor financeiro persistido.
+const operationalValueCache=new Map();
+async function operationalInvoiceValue(r){
+ const numbers=operationalInvoiceNumbers(r.plan_number);
+ if(!numbers.length)return null;
+ const key=numbers.join('|');
+ if(!operationalValueCache.has(key)){
+  const promise=invoicesForOperationalRoute(r).then(({invoices})=>{
+   if(invoices.some(n=>n.invoice_value===null||n.invoice_value===undefined||!Number.isFinite(Number(n.invoice_value))))throw Error('Valor de NF ausente ou invalido');
+   return invoices.reduce((sum,n)=>sum+Number(n.invoice_value),0);
+  });
+  operationalValueCache.set(key,promise);
+  promise.catch(()=>{if(operationalValueCache.get(key)===promise)operationalValueCache.delete(key);});
+ }
+ return operationalValueCache.get(key);
+}
+async function fillOperationalValues(target,rows,which){
+ const trs=[...target.querySelectorAll('tbody tr')];
+ await Promise.all(rows.map(async(r,i)=>{
+  if(!operationalInvoiceNumbers(r.plan_number).length)return;
+  const cell=trs[i]?.children[7];
+  if(!cell)return;
+  try{
+   const value=await operationalInvoiceValue(r);
+   if(!cell.isConnected)return;
+   cell.textContent=value.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+   cell.title='Soma informativa das NFs vinculadas; nao altera o valor financeiro da rota';
+  }catch(e){if(cell.isConnected)cell.title='Valor nao validado: '+e.message;console.warn('Valor de NFs nao confirmado na rota '+r.id,e.message);}
+ }));
 }
 // SAC WhatsApp V13.66: copia localmente; nunca envia mensagem automaticamente.
 async function copySacWhatsapp(text){
