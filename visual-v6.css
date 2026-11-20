@@ -604,3 +604,14 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 
 /* Protocolos de canhotos — visual INNOVA */
 .protocol-workspace{background:#f5f8fc!important;border:0!important;box-shadow:none!important;padding:12px!important}.protocol-workspace>.head{margin:5px 0 18px}.pr-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px}.pr-cards>div,.pr-box{background:white;border:1px solid #dce6f0;border-radius:12px;padding:16px;box-shadow:0 2px 8px #0c31550b}.pr-cards small{display:block;color:#69829b;font-size:12px}.pr-cards strong{display:block;font-size:24px;font-weight:650;color:#063969;margin-top:8px}.pr-box{margin-bottom:14px}.pr-box h2{font-size:15px}.pr-grid{min-width:1120px}.pr-grid input{font-size:12px;padding:7px;min-width:100px}.pr-grid td{padding:5px}.pr-grid th{position:sticky;top:0;z-index:1}.pr-grid td:nth-child(5) input{min-width:190px}.pr-scroll{max-height:440px}.pr-row-remove{background:#fff0ec;color:#a33b28;padding:6px 9px}.pr-history-row{cursor:pointer}.pr-history-row:hover{background:#eef5fc}@media(max-width:700px){.pr-cards{grid-template-columns:1fr 1fr}.protocol-workspace{padding:4px!important}}
+
+/* Protocolos de canhotos — usabilidade v22.1 */
+#panel-protocols .pr-entry .row{display:flex;gap:8px;align-items:center;flex-wrap:nowrap}
+#panel-protocols #pr-invoice{flex:1;min-width:0}
+#panel-protocols #pr-add-nf{flex:0 0 auto;white-space:nowrap}
+#panel-protocols .pr-bottom-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:14px 0 4px}
+#panel-protocols .pr-limit{margin-left:auto;color:#55718b;font-size:12px}
+#panel-protocols .pr-row-remove{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;min-width:28px;padding:0;border:1px solid #dbe5f0;border-radius:7px;background:#f4f8fc;color:#245477;font-size:17px;font-weight:400;line-height:1;cursor:pointer;box-shadow:none}
+#panel-protocols .pr-row-remove:hover{background:#e9f2fb;border-color:#bad2eb;color:#074c82}
+#panel-protocols .pr-row-remove:focus-visible{outline:2px solid #1c6eb0;outline-offset:2px}
+@media(max-width:560px){#panel-protocols .pr-entry .row{flex-wrap:wrap}#panel-protocols #pr-add-nf{width:100%}#panel-protocols .pr-limit{width:100%;margin-left:0}}
