@@ -627,3 +627,28 @@ body.sidebar-collapsed .shell,body.sidebar-collapsed .footer{margin-left:58px!im
 #panel-protocols .pr-revision .row{display:flex;gap:8px;margin:10px 0}
 #panel-protocols .pr-revision input{flex:1;min-width:0}
 #panel-protocols .pr-revision table{margin-top:12px}
+
+/* Protocolos: indicadores exclusivos e área de digitação prioritária */
+body:has(#panel-protocols:not(.hidden)) #innova-top-kpis{display:none!important}
+#panel-protocols .pr-cards{grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+#panel-protocols .pr-kpi{position:relative;min-height:105px;padding:15px 16px;border-top:3px solid #0a5798}
+#panel-protocols .pr-kpi:nth-child(2){border-top-color:#149b82}
+#panel-protocols .pr-kpi:nth-child(4){border-top-color:#e5a038}
+#panel-protocols .pr-kpi small{font-size:11px;color:#69829b}
+#panel-protocols .pr-kpi strong{font-size:23px;font-weight:600;margin-top:7px}
+#panel-protocols .pr-kpi-sub{display:block;margin-top:4px;color:#71869a;font-size:10px}
+#panel-protocols .pr-kpi-icon{position:absolute;right:14px;top:13px;background:#edf5fd;color:#0a5798;border-radius:9px;padding:7px;font-size:13px}
+#panel-protocols .pr-entry{border:2px solid #1769ac;background:linear-gradient(135deg,#f5faff,#fff 68%);border-radius:12px;padding:18px;margin:18px 0 12px;box-shadow:0 4px 15px #0b4b8212}
+#panel-protocols .pr-entry-heading{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+#panel-protocols .pr-entry-heading h3{font-size:17px;font-weight:600;margin:0 0 4px;color:#092f56}
+#panel-protocols .pr-entry-heading p{font-size:12px;color:#69829b;margin:0}
+#panel-protocols .pr-entry-icon{background:#e5f1fc;color:#07539b;border-radius:10px;padding:11px 13px;font-size:20px}
+#panel-protocols .pr-entry-counter{margin-left:auto;border-radius:18px;background:#e8f2fc;color:#07539b;padding:6px 11px;font-size:12px;white-space:nowrap}
+#panel-protocols .pr-entry>label{font-size:12px;font-weight:600;color:#245477;display:block;margin-bottom:6px}
+#panel-protocols #pr-invoice{height:47px;font-size:17px;border:1px solid #a6c8e6;box-shadow:0 0 0 2px #dceefa50}
+#panel-protocols #pr-invoice:focus{outline:2px solid #2679bc;outline-offset:1px}
+#panel-protocols #pr-add-nf{height:47px;padding:0 19px}
+#panel-protocols .pr-entry-help{display:block;margin-top:10px;color:#52718d;font-size:11px}
+#panel-protocols .pr-grid tbody tr:first-child{background:#f0f7ff}
+@media(max-width:900px){#panel-protocols .pr-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){#panel-protocols .pr-entry{padding:12px}#panel-protocols .pr-entry-heading h3{font-size:15px}#panel-protocols .pr-entry-counter{font-size:10px}}
