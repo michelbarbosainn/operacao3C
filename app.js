@@ -274,23 +274,39 @@ async function loadOperationalSummary(){
   const invoiceByPlan=new Map();for(const inv of invoices){const key=String(inv.plan_number||'').trim();if(!invoiceByPlan.has(key))invoiceByPlan.set(key,[]);invoiceByPlan.get(key).push(inv);}
   // Ocorrências encerradas ou abertas podem indicar insucesso; penalizar apenas encerramento REENTREGA/DEVOLUÇÃO.
   // Ocorrências são opcionais para o resumo: falhas de permissão não podem ocultar os indicadores de rotas.
-  const occ=[];let occurrenceWarning='';let occurrenceFetchError='';
-  for(let i=0;i<plans.length;i+=25){
-   try{occ.push(...await opsFetchPages('pcd_v9_occurrences','id,plan_number,customer_code,customer_name,status,closing_result',q=>q.in('plan_number',plans.slice(i,i+25))));}
-   catch(e){occ.length=0;occurrenceFetchError=e.message;occurrenceWarning='Ocorrências SAC indisponíveis: '+e.message;break;}
+  // O SAC já utiliza a RPC autenticada pcd_v9_list_occurrences. A tabela física
+  // pode não conceder SELECT ao usuário da interface; reutilizar a RPC em vez de
+  // exigir privilégios adicionais no banco. Não ocultar erros nem fabricar zeros.
+  const occ=[];let occurrenceWarning='',occurrenceSource='RPC SAC';
+  const normalizedPlans=[...new Map(plans.map(p=>[norm(p),p])).values()];
+  const failedPlans=[];let cursor=0;
+  const worker=async()=>{
+   while(cursor<normalizedPlans.length){
+    const plan=normalizedPlans[cursor++];
+    try{
+     const rows=await rpc('pcd_v9_list_occurrences',{p_plan:plan});
+     if(!Array.isArray(rows))throw Error('Resposta SAC não é uma lista');
+     for(const row of rows){
+      occ.push({...row,plan_number:row.plan_number||plan,
+       id:row.id??row.occurrence_id,
+       customer_code:row.customer_code??row.recipient_code??'',
+       customer_name:row.customer_name??row.recipient_name??'',
+       status:row.status??row.occurrence_status??'',
+       closing_result:row.closing_result??row.closure_result??''});
+     }
+    }catch(e){failedPlans.push(plan+': '+e.message);}
+   }
+  };
+  await Promise.all(Array.from({length:Math.min(4,normalizedPlans.length)},()=>worker()));
+  if(failedPlans.length){
+   occurrenceWarning='Consulta SAC incompleta: '+failedPlans.length+' de '+normalizedPlans.length+' planos sem leitura. '+failedPlans[0];
   }
-  if(!occurrenceWarning&&plans.length&&occ.length===0){occurrenceWarning='Nenhuma ocorrência SAC visível para os planos consultados. Verifique permissões RLS e vínculos; conclusão não calculada.';}
-  // Verificação adicional: a OC-000025 é um caso confirmado (plano 6103358037, rota 7887).
-  // Quando a consulta em lote não retorna a ocorrência, testar a leitura por ID e plano.
-  // Não inserir dados fictícios no ranking; registrar diagnóstico para o usuário.
+  // Uma lista vazia pode ser legítima: não equivale a falha de permissão.
+  // A conferência de OC-000025 usa a mesma RPC do SAC, sem consultas diretas à tabela.
   let oc25Diagnostic='';
-  if(plans.some(p=>norm(p)==='6103358037')&&!occ.some(o=>Number(o.id)===25)){
-   try{
-    const {data:oc25,error:oc25Error}=await db.from('pcd_v9_occurrences').select('id,plan_number,status,closing_result,customer_code').eq('id',25).maybeSingle();
-    if(oc25Error)oc25Diagnostic='OC-000025: '+oc25Error.message;
-    else if(oc25){occ.push(oc25);oc25Diagnostic='OC-000025 recuperada por consulta direta; verificar filtro por plano.';if(!occurrenceFetchError)occurrenceWarning='';}
-    else oc25Diagnostic='OC-000025 não está visível para este usuário (verificar RLS).';
-   }catch(e){oc25Diagnostic='OC-000025: '+e.message;}
+  if(normalizedPlans.some(p=>norm(p)==='6103358037')){
+   const item=occ.find(o=>Number(o.id)===25);
+   oc25Diagnostic=item?'OC-000025 localizada no SAC ('+String(item.closing_result||item.status||'sem resultado')+')':'OC-000025 não retornou pela RPC do plano 6103358037';
   }
   const occByPlan=new Map();for(const o of occ){const key=norm(o.plan_number);if(!occByPlan.has(key))occByPlan.set(key,[]);occByPlan.get(key).push(o);}
   // Distâncias já cadastradas na tabela de faixas da operação. Selecionar por cidade, sem estimar geografia inexistente.
@@ -337,7 +353,7 @@ async function loadOperationalSummary(){
   const ranked=[...clientStats.values()].filter(x=>x.occurrences).sort((a,b)=>b.occurrences-a.occurrences||a.code.localeCompare(b.code));
   $('ops-client-ranking').innerHTML=occurrenceWarning?'<p class="muted">Ranking de insucessos temporariamente indisponível: falta permissão de leitura das ocorrências no Supabase.</p>':ranked.length?`<div class="scroll"><table class="ops-client-table"><thead><tr><th>Código</th><th>Cliente</th><th>Entregas identificadas</th><th>Insucessos</th><th>Incidência</th></tr></thead><tbody>${ranked.map(x=>`<tr><td>${esc(x.code)}</td><td>${esc(x.name)}</td><td>${opsFmt(x.deliveries)}</td><td>${opsFmt(x.occurrences)}</td><td>${opsFmt(x.deliveries?100*x.occurrences/x.deliveries:0)}%</td></tr>`).join('')}</tbody></table></div>`:'Nenhum insucesso encerrado com código de cliente foi identificado nas rotas executadas do período.';
   topKpiUpdate('operational-summary',[topNum(data.length),topNum(data.filter(r=>norm(r.route_status)==='PROGRAMADO').length),topNum(data.filter(r=>norm(r.route_status)==='EMROTA').length),topNum(executed.length),topNum(data.filter(r=>norm(r.route_status)==='NAOEMBARCOU').length),topNum(sums('deliveries'))]);
-  info.textContent=`${opsFmt(data.length)} rotas consultadas · ${opsFmt(executed.length)} executadas · ${opsFmt(opsRows.length)} motoristas · ${opsFmt(occ.length)} ocorrências SAC consultadas${occurrenceWarning?' · '+occurrenceWarning:''}${distanceWarning?' · '+distanceWarning:''}${oc25Diagnostic?' · '+oc25Diagnostic:''}`;
+  info.textContent=`${opsFmt(data.length)} rotas consultadas · ${opsFmt(executed.length)} executadas · ${opsFmt(opsRows.length)} motoristas · ${opsFmt(occ.length)} ocorrências SAC consultadas via ${occurrenceSource}${occurrenceWarning?' · '+occurrenceWarning:''}${distanceWarning?' · '+distanceWarning:''}${oc25Diagnostic?' · '+oc25Diagnostic:''}`;
  }catch(e){info.textContent='Não foi possível atualizar o resumo: '+e.message;throw e;}
 }
 $('ops-filter').onclick=()=>loadOperationalSummary().catch(e=>message(e.message,true));
