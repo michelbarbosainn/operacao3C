@@ -85,7 +85,7 @@ function topKpiUpdate(t,values){topKpiCache.set(t,values.map(v=>v==null?'—':St
 const topNum=n=>Number(n||0).toLocaleString('pt-BR');
 
 async function refreshMetrics(){const a=await rpc('pcd_dashboard');$('metric-routes').textContent=a.total_routes;const day=$('availability-date').value||today();drivers=await rpc('pcd_v8_drivers',{p_date:day});$('metric-drivers').textContent=drivers.length;$('metric-available').textContent=drivers.filter(d=>d.day_status==='DISPONIVEL').length;$('metric-assigned').textContent=drivers.filter(d=>d.day_status==='PROGRAMADO').length;topKpiUpdate('import',[topNum(a.total_routes),topNum(drivers.length),topNum(drivers.filter(d=>d.day_status==='DISPONIVEL').length),topNum(drivers.filter(d=>d.day_status==='PROGRAMADO').length),'—','—']);}
-async function showTab(t){if((t==='billing'||t==='management')&&!financeOwner){message('Acesso financeiro e gerencial exclusivo do usuário autorizado.',true);return;}if(t==='finance-params'&&$('finance-params-nav').classList.contains('hidden')){message('Acesso restrito ao administrador.',true);return;}tab=t;topKpiRender(t);document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','finance-params','availability','sac','occurrences','recipients','reasons','operational-summary','management'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='operational-summary')await loadOperationalSummary();if(t==='billing')await loadBilling();if(t==='management')await loadManagement();if(t==='finance-params')await loadFinanceParams();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();}catch(e){message(e.message,true);}}
+async function showTab(t){if((t==='billing'||t==='management')&&!financeOwner){message('Acesso financeiro e gerencial exclusivo do usuário autorizado.',true);return;}if(t==='finance-params'&&$('finance-params-nav').classList.contains('hidden')){message('Acesso restrito ao administrador.',true);return;}tab=t;topKpiRender(t);document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('[data-go]').forEach(b=>b.classList.toggle('active',b.dataset.go===t));for(const x of ['import','routes','billing','finance-params','availability','sac','occurrences','recipients','reasons','operational-summary','management','calendar'])$('panel-'+x).classList.toggle('hidden',x!==t);try{if(t==='operational-summary')await loadOperationalSummary();if(t==='billing')await loadBilling();if(t==='management')await loadManagement();if(t==='finance-params')await loadFinanceParams();if(t==='availability')await loadAvailability();if(t==='routes'||t==='sac')await loadRoutes(t);if(t==='occurrences')await loadOccurrences();if(t==='recipients')await loadRecipients();if(t==='reasons')await loadReasons();if(t==='calendar')await loadCalendar();}catch(e){message(e.message,true);}}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 const sideToggle=$('sidebar-toggle'),cadToggle=$('cadastros-toggle'),cadMenu=$('cadastros-submenu');
 sideToggle.onclick=()=>{const collapsed=document.body.classList.toggle('sidebar-collapsed');sideToggle.title=collapsed?'Expandir menu':'Recolher menu';sideToggle.querySelector('span').textContent=collapsed?'Expandir menu':'Recolher menu';};
@@ -1970,3 +1970,34 @@ async function exportProgramPDF(){
  }catch(e){message(e.message,true);}finally{btn.disabled=false;btn.textContent=old;}
 }
 $('program-pdf').onclick=exportProgramPDF;
+
+// Calendário operacional — fonte central pcd_calendar_nonbusiness_days.
+const CAL_SCOPE='INNOVA_3C';
+let calendarRows=[];
+async function loadCalendar(){
+ const year=Number($('calendar-year').value);
+ const {data,error}=await db.from('pcd_calendar_nonbusiness_days').select('day,description,scope').eq('scope',CAL_SCOPE).gte('day',`${year}-01-01`).lte('day',`${year}-12-31`).order('day');
+ if(error){$('calendar-feedback').textContent='Não foi possível consultar o calendário: '+error.message;return;}
+ calendarRows=data||[];$('calendar-feedback').textContent=`${calendarRows.length} data(s) não operacional(is) cadastrada(s) em ${year}.`;
+ const byMonth=Array.from({length:12},(_,i)=>calendarRows.filter(r=>Number(r.day.slice(5,7))===i+1));
+ const monthNames=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+ $('calendar-months').innerHTML=byMonth.map((items,i)=>`<div class="calendar-month"><div class="calendar-month-title">${monthNames[i]} <span>${items.length}</span></div>${items.length?items.map(r=>`<div class="calendar-event"><span class="calendar-date">${r.day.slice(8,10)}</span><span>${esc(r.description||'Dia não operacional')}</span></div>`).join(''):'<div class="calendar-empty">Sem feriados cadastrados</div>'}</div>`).join('');
+ $('calendar-table').innerHTML='<table><thead><tr><th>Data</th><th>Descrição</th><th>Escopo</th></tr></thead><tbody>'+calendarRows.map(r=>`<tr><td>${r.day.slice(8,10)}/${r.day.slice(5,7)}/${r.day.slice(0,4)}</td><td>${esc(r.description||'—')}</td><td>${esc(r.scope)}</td></tr>`).join('')+'</tbody></table>';
+}
+$('calendar-year').onchange=loadCalendar;
+$('calendar-refresh').onclick=loadCalendar;
+$('calendar-add').onclick=async()=>{
+ const day=$('calendar-day').value,description=$('calendar-description').value.trim();
+ if(!day||!description){$('calendar-feedback').textContent='Informe a data e a descrição.';return;}
+ if(calendarRows.some(r=>r.day===day)){$('calendar-feedback').textContent='Esta data já está cadastrada para INNOVA_3C.';return;}
+ if(!confirm(`Cadastrar ${day.split('-').reverse().join('/')} como dia não operacional da INNOVA_3C?`))return;
+ const btn=$('calendar-add');btn.disabled=true;
+ try{
+  const {error}=await db.from('pcd_calendar_nonbusiness_days').insert({day,description,scope:CAL_SCOPE});
+  if(error)throw error;
+  $('calendar-year').value=day.slice(0,4);
+  if(!$('calendar-year').value){$('calendar-year').add(new Option(day.slice(0,4),day.slice(0,4)));$('calendar-year').value=day.slice(0,4);}
+  $('calendar-description').value='';await loadCalendar();
+ }catch(e){$('calendar-feedback').textContent='Não foi possível salvar: '+e.message+' (verifique as políticas de acesso/RLS).';}
+ finally{btn.disabled=false;}
+};
