@@ -711,3 +711,5 @@ body:has(#panel-protocols:not(.hidden)) #innova-top-kpis{display:none!important}
 .pr-summary-note{font-size:12px;color:#4b647d;line-height:1.55}
 #pr-history td button{margin:2px}
 @media(max-width:640px){.pr-summary-metrics{grid-template-columns:1fr}}
+
+.pay-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}.pay-kpis>div{background:#fff;border:1px solid #dbe7f0;border-top:3px solid #0d5796;border-radius:10px;padding:12px}.pay-kpis>div:nth-child(2){border-top-color:#00a18b}.pay-kpis>div:nth-child(3){border-top-color:#e3a333}.pay-kpis small{display:block;color:#607a90}.pay-kpis strong{font-size:18px;color:#092e50}.pay-row-actions{display:flex;gap:6px;flex-wrap:wrap}.pay-receipt-dialog input[type=file]{width:100%}@media(max-width:650px){.pay-kpis{grid-template-columns:1fr}}

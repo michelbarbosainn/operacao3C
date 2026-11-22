@@ -1795,29 +1795,69 @@ $('payment-confirm').onclick=async()=>{
   message('Solicitação nº '+res.id+' enviada para Contas a Pagar. Nenhum pagamento foi efetuado.');
  }catch(e){error.textContent=e.message;}finally{btn.disabled=false;}
 };
+let payCurrentRequest=null;
+const payFmt=n=>payCurrency(Number(n)||0);
+function payKpis(root,labels){root.innerHTML=labels.map(([k,v])=>`<div><small>${esc(k)}</small><strong>${esc(v)}</strong></div>`).join('');}
+async function payLoadReceipts(id){return await rpc('pcd_finance_payment_list',{p_request_id:Number(id)});}
+async function payReceiptOpen(req){
+ payCurrentRequest=req;$('pay-receipt-modal').classList.remove('hidden');$('pay-receipt-error').textContent='';$('pay-receipt-date').value=today();$('pay-receipt-file').value='';
+ $('pay-receipt-subtitle').textContent=`Solicitação nº ${req.id} · ${req.driver_name}`;
+ await payReceiptRefresh();
+}
+async function payReceiptRefresh(){
+ const req=payCurrentRequest;if(!req)return;
+ const payments=await payLoadReceipts(req.id);const paid=payments.filter(x=>!x.voided_at).reduce((n,x)=>n+Number(x.amount),0);
+ const balance=Math.max(0,Number(req.total_amount)-paid);
+ payKpis($('pay-receipt-balances'),[['Solicitado',payFmt(req.total_amount)],['Pago',payFmt(paid)],['Saldo',payFmt(balance)]]);
+ $('pay-receipt-amount').value=balance>0?balance.toFixed(2):'';
+ $('pay-receipt-save').disabled=balance<.01||req.status!=='PENDING';
+ const t=document.createElement('table');t.className='payment-table';t.innerHTML='<thead><tr><th>Data</th><th>Valor</th><th>Forma</th><th>Situação</th><th>Comprovante</th></tr></thead>';
+ const tb=document.createElement('tbody');
+ for(const x of payments){const tr=document.createElement('tr');for(const v of [billingBR(x.paid_on),payFmt(x.amount),x.method,x.voided_at?'Estornado':'Confirmado']){const td=document.createElement('td');td.textContent=v;tr.append(td);}
+ const td=document.createElement('td');const b=document.createElement('button');b.className='secondary';b.textContent='Visualizar';b.onclick=async()=>{try{const {data,error}=await db.storage.from('pcd-payment-receipts').createSignedUrl(x.receipt_path,60);if(error)throw error;window.open(data.signedUrl,'_blank','noopener');}catch(e){$('pay-receipt-error').textContent=e.message;}};td.append(b);tr.append(td);tb.append(tr);}
+ t.append(tb);$('pay-receipt-history').replaceChildren(t);
+}
+$('pay-receipt-close').onclick=()=>$('pay-receipt-modal').classList.add('hidden');
+$('pay-receipt-save').onclick=async()=>{
+ const req=payCurrentRequest,btn=$('pay-receipt-save'),err=$('pay-receipt-error');err.textContent='';
+ const amount=Number($('pay-receipt-amount').value),date=$('pay-receipt-date').value,file=$('pay-receipt-file').files[0];
+ if(!date||!Number.isFinite(amount)||amount<=0){err.textContent='Informe data e valor válido.';return;}
+ if(!file||file.size>10*1024*1024||!['application/pdf','image/jpeg','image/png'].includes(file.type)){err.textContent='Anexe um PDF, JPG ou PNG de até 10 MB.';return;}
+ if(!confirm(`Confirmar baixa de ${payFmt(amount)} na solicitação nº ${req.id}?`))return;
+ btn.disabled=true;let path='';
+ try{
+  const {data:auth}=await db.auth.getUser();if(!auth?.user?.id)throw Error('Sessão expirada.');
+  const ext=file.type==='application/pdf'?'pdf':file.type==='image/png'?'png':'jpg';
+  path=`${auth.user.id}/${req.id}/${crypto.randomUUID()}.${ext}`;
+  const upload=await db.storage.from('pcd-payment-receipts').upload(path,file,{contentType:file.type,upsert:false});if(upload.error)throw upload.error;
+  await rpc('pcd_finance_payment_record',{p_request_id:Number(req.id),p_amount:amount,p_paid_on:date,p_method:$('pay-receipt-method').value,p_reference:$('pay-receipt-reference').value||null,p_receipt_path:path});
+  message('Pagamento registrado com comprovante.');await payReceiptRefresh();await payQueueOpen();
+ }catch(e){err.textContent='Baixa não concluída: '+e.message+(path?' · Se o arquivo foi enviado, ele poderá ser removido por rotina administrativa.':'');}
+ finally{btn.disabled=false;}
+};
 async function payQueueOpen(){
- $('pay-queue-modal').classList.remove('hidden');$('pay-queue-error').textContent='';
+ requireFinanceOwner();$('pay-queue-modal').classList.remove('hidden');$('pay-queue-error').textContent='';
  const root=$('pay-queue-table');root.textContent='Carregando solicitações…';
  try{
-  const data=await rpc('pcd_finance_request_list');root.replaceChildren();
-  if(!data?.length){root.textContent='Nenhuma solicitação cadastrada.';return;}
-  const t=document.createElement('table');t.className='payment-table';
-  t.innerHTML='<thead><tr><th>Nº</th><th>Motorista</th><th>Tipo</th><th>Previsto</th><th>Rotas</th><th>Valor</th><th>Situação</th><th>Ação</th></tr></thead>';
+  const data=await rpc('pcd_finance_request_list');const payments=await rpc('pcd_finance_payment_totals');
+  const totals=new Map((payments||[]).map(x=>[Number(x.request_id),Number(x.paid_amount)]));
+  const pending=(data||[]).filter(x=>x.status==='PENDING');
+  payKpis($('pay-queue-summary'),[['Solicitações ativas',String(pending.length)],['Total pago',payFmt(pending.reduce((n,x)=>n+(totals.get(Number(x.id))||0),0))],['Saldo pendente',payFmt(pending.reduce((n,x)=>n+Math.max(0,Number(x.total_amount)-(totals.get(Number(x.id))||0)),0))]]);
+  root.replaceChildren();if(!data?.length){root.textContent='Nenhuma solicitação cadastrada.';return;}
+  const t=document.createElement('table');t.className='payment-table';t.innerHTML='<thead><tr><th>Nº</th><th>Motorista</th><th>Tipo</th><th>Previsto</th><th>Rotas</th><th>Solicitado</th><th>Pago</th><th>Saldo</th><th>Situação</th><th>Ação</th></tr></thead>';
   const body=document.createElement('tbody');
   for(const req of data){
+   const paid=totals.get(Number(req.id))||0,balance=Math.max(0,Number(req.total_amount)-paid);
+   const status=req.status!=='PENDING'?'Cancelada':balance<.01?'Pago':paid>0?'Parcialmente pago':'Aguardando pagamento';
    const tr=document.createElement('tr');
-   const values=[req.id,req.driver_name,req.kind==='ADVANCE'?'Adiantamento':'Fechamento',billingBR(req.expected_on),req.route_count,payCurrency(req.total_amount),req.status==='PENDING'?'Aguardando pagamento':'Cancelada'];
-   for(const v of values){const td=document.createElement('td');td.textContent=String(v??'');tr.append(td);}
-   const td=document.createElement('td');
-   if(req.status==='PENDING'){
-    const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent='Cancelar';
-    b.onclick=async()=>{if(!confirm('Cancelar solicitação nº '+req.id+'?'))return;b.disabled=true;try{await rpc('pcd_finance_request_cancel',{p_request_id:Number(req.id)});await payQueueOpen();}catch(e){$('pay-queue-error').textContent=e.message;b.disabled=false;}};
-    td.append(b);
-   }else td.textContent='—';
+   for(const v of [req.id,req.driver_name,req.kind==='ADVANCE'?'Adiantamento':'Fechamento',billingBR(req.expected_on),req.route_count,payFmt(req.total_amount),payFmt(paid),payFmt(balance),status]){const td=document.createElement('td');td.textContent=String(v??'');tr.append(td);}
+   const td=document.createElement('td');td.className='pay-row-actions';
+   const view=document.createElement('button');view.type='button';view.className='secondary';view.textContent=balance>.001&&req.status==='PENDING'?'Baixar / Histórico':'Histórico';view.onclick=()=>payReceiptOpen(req).catch(e=>$('pay-queue-error').textContent=e.message);td.append(view);
+   if(req.status==='PENDING'&&paid<.001){const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent='Cancelar';b.onclick=async()=>{if(!confirm('Cancelar solicitação nº '+req.id+'?'))return;b.disabled=true;try{await rpc('pcd_finance_request_cancel',{p_request_id:Number(req.id)});await payQueueOpen();}catch(e){$('pay-queue-error').textContent=e.message;b.disabled=false;}};td.append(b);}
    tr.append(td);body.append(tr);
   }
   t.append(body);root.append(t);
- }catch(e){root.textContent='';$('pay-queue-error').textContent=e.message+' · Execute primeiro o SQL da V13.65.';}
+ }catch(e){root.textContent='';$('pay-queue-error').textContent=e.message+' · Verifique se o SQL de pagamentos foi instalado.';}
 }
 $('pay-queue-open').onclick=payQueueOpen;
 $('pay-queue-close').onclick=()=>$('pay-queue-modal').classList.add('hidden');
