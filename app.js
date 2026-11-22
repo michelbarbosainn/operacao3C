@@ -1393,6 +1393,7 @@ $('gmail-history').onclick=async()=>{try{gmailBusySet(true);gmailStatus('Consult
 let billingPage=0,billingTotal=0;
 const billingMoney=n=>n==null?'—':Number(n).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 function billingNorm(v){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();}
+function billingCityKey(v){return billingNorm(v).replace(/[^A-Z0-9]/g,'');}
 function billingBR(v){if(!v)return '—';const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1]}`:String(v);}
 function billingDateISO(v){const x=String(v||'').trim();if(!x)return null;const m=x.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);if(!m)throw Error('Informe a data no formato DD/MM/AAAA.');const iso=`${m[3]}-${m[2]}-${m[1]}`;const d=new Date(iso+'T12:00:00Z');if(isNaN(d)||d.getUTCDate()!==Number(m[1])||d.getUTCMonth()+1!==Number(m[2]))throw Error('Data inválida.');return iso;}
 const billingComplements=new Map();
@@ -1432,7 +1433,7 @@ async function openProgrammingCities(r){
   if(!Array.isArray(rates))throw Error('Consulta operacional de distâncias indisponível.');
   const profile=billingNorm(r.vehicle_profile);
   const details=cities.map(city=>{
-   const matching=rates.filter(x=>billingNorm(x.city)===city&&billingNorm(x.vehicle_profile)===profile)
+   const matching=rates.filter(x=>billingCityKey(x.city)===billingCityKey(city)&&billingNorm(x.vehicle_profile)===profile)
     .sort((a,b)=>Number(b.distance_km||0)-Number(a.distance_km||0)||Number(b.band||0)-Number(a.band||0));
    const best=matching[0];
    return {city,band:best?.band??null,distance:best?.distance_km??null};
@@ -1860,10 +1861,26 @@ async function loadBilling(){requireFinanceOwner();
  const driversByName=new Map(driverProfiles.filter(x=>x.name).map(x=>[billingNorm(x.name),x]));
  const cityRates=[],tollRates=[],exceptions=[];
  // Normalização em JS: evita perder cidades com diferenças de acentuação/capitalização.
- if(cities.length){for(let i=0;i<cities.length;i+=20){const part=cities.slice(i,i+20);
-  const {data:rr,error}=await db.from('pcd_billing_city_rates').select('city,band,vehicle_profile,freight_payable,revenue_reference,distance_km').in('city',part).limit(5000);if(error)throw error;cityRates.push(...(rr||[]));
-  const {data:tt,error:te}=await db.from('pcd_billing_tolls').select('city,amount').in('city',part).limit(1000);if(te)throw te;tollRates.push(...(tt||[]));
- }}
+ // A correspondência por cidade deve ser normalizada (acentos e apóstrofos).
+ // Consultar as tabelas por páginas evita perder nomes com grafias diferentes.
+ if(cities.length){
+  for(let offset=0;;offset+=1000){
+   const {data:rr,error}=await db.from('pcd_billing_city_rates')
+    .select('city,band,vehicle_profile,freight_payable,revenue_reference,distance_km')
+    .range(offset,offset+999);
+   if(error)throw error;
+   cityRates.push(...(rr||[]));
+   if(!rr||rr.length<1000)break;
+  }
+  for(let offset=0;;offset+=1000){
+   const {data:tt,error}=await db.from('pcd_billing_tolls')
+    .select('city,amount').range(offset,offset+999);
+   if(error)throw error;
+   tollRates.push(...(tt||[]));
+   if(!tt||tt.length<1000)break;
+  }
+ }
+
  const supplier='';if(supplier){const {data:ee,error}=await db.from('pcd_billing_supplier_rates').select('supplier_name,vehicle_profile,band,amount,effective_from,effective_until').eq('supplier_name',supplier).limit(500);if(error)throw error;exceptions.push(...(ee||[]));}
  $('billing-rates-status').textContent=cityRates.length?'Disponível':'Sem correspondência';$('billing-tolls-status').textContent=tollRates.length?'Disponível':'Sem correspondência';
  const grouped=new Map();for(const r of data){const key=r.parent_route_id!=null?'CONTINUIDADE|'+String(r.id):String(r.plan_number)+'|'+String(r.route_date||r.loading_on||'')+'|'+String(r.vehicle_profile||'');if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(r);}
@@ -1873,13 +1890,13 @@ async function loadBilling(){requireFinanceOwner();
   const driver=driversByPlate.get(billingNorm(r.plate).replace(/[^A-Z0-9]/g,''))||driversByName.get(billingNorm(r.driver_name));
   const embarkedProfile=driver?.profile?billingNorm(driver.profile):null;
   const prof=embarkedProfile||contractedProfile;
-  const matched=cityList.flatMap(city=>cityRates.filter(x=>billingNorm(x.city)===city&&billingNorm(x.vehicle_profile)===contractedProfile).map(x=>({...x,routeCity:city})));
-  const payRates=cityList.flatMap(city=>cityRates.filter(x=>billingNorm(x.city)===city&&billingNorm(x.vehicle_profile)===prof).map(x=>({...x,routeCity:city}))); 
+  const matched=cityList.flatMap(city=>cityRates.filter(x=>billingCityKey(x.city)===billingCityKey(city)&&billingNorm(x.vehicle_profile)===contractedProfile).map(x=>({...x,routeCity:city})));
+  const payRates=cityList.flatMap(city=>cityRates.filter(x=>billingCityKey(x.city)===billingCityKey(city)&&billingNorm(x.vehicle_profile)===prof).map(x=>({...x,routeCity:city}))); 
   matched.sort((x,y)=>Number(y.distance_km||0)-Number(x.distance_km||0)||Number(y.band)-Number(x.band));const decisive=matched[0];
   const dateKey=r.route_date||r.loading_on||'';
   const payableRate=decisive?payRates.filter(x=>Number(x.band)===Number(decisive.band)).sort((a,b)=>Number(b.distance_km||0)-Number(a.distance_km||0))[0]:null;
   const override=decisive?exceptions.filter(x=>billingNorm(x.vehicle_profile)===prof&&Number(x.band)===Number(decisive.band)&&(!dateKey||x.effective_from<=dateKey)&&(!x.effective_until||x.effective_until>=dateKey)).sort((a,b)=>String(b.effective_from).localeCompare(String(a.effective_from)))[0]:null;
-  const cityTolls=decisive?tollRates.filter(x=>billingNorm(x.city)===billingNorm(decisive.routeCity)):[];
+  const cityTolls=decisive?tollRates.filter(x=>billingCityKey(x.city)===billingCityKey(decisive.routeCity)):[];
   const toll=cityTolls.length?Number(cityTolls[0].amount)*billingTollMultiplier(prof):null;
   const freight=override?Number(override.amount):payableRate?Number(payableRate.freight_payable):null;
   const revenueBase=decisive?.revenue_reference==null?null:Number(decisive.revenue_reference);
