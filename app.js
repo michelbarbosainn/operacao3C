@@ -1824,15 +1824,22 @@ $('pay-receipt-save').onclick=async()=>{
  if(!date||!Number.isFinite(amount)||amount<=0){err.textContent='Informe data e valor válido.';return;}
  if(!file||file.size>10*1024*1024||!['application/pdf','image/jpeg','image/png'].includes(file.type)){err.textContent='Anexe um PDF, JPG ou PNG de até 10 MB.';return;}
  if(!confirm(`Confirmar baixa de ${payFmt(amount)} na solicitação nº ${req.id}?`))return;
- btn.disabled=true;let path='';
+ btn.disabled=true;let path='';let uploaded=false;let recorded=false;
  try{
   const {data:auth}=await db.auth.getUser();if(!auth?.user?.id)throw Error('Sessão expirada.');
   const ext=file.type==='application/pdf'?'pdf':file.type==='image/png'?'png':'jpg';
   path=`${auth.user.id}/${req.id}/${crypto.randomUUID()}.${ext}`;
-  const upload=await db.storage.from('pcd-payment-receipts').upload(path,file,{contentType:file.type,upsert:false});if(upload.error)throw upload.error;
-  await rpc('pcd_finance_payment_record',{p_request_id:Number(req.id),p_amount:amount,p_paid_on:date,p_method:$('pay-receipt-method').value,p_reference:$('pay-receipt-reference').value||null,p_receipt_path:path});
+  const upload=await db.storage.from('pcd-payment-receipts').upload(path,file,{contentType:file.type,upsert:false});if(upload.error)throw upload.error;uploaded=true;
+  await rpc('pcd_finance_payment_record',{p_request_id:Number(req.id),p_amount:amount,p_paid_on:date,p_method:$('pay-receipt-method').value,p_reference:$('pay-receipt-reference').value||null,p_receipt_path:path});recorded=true;
   message('Pagamento registrado com comprovante.');await payReceiptRefresh();await payQueueOpen();
- }catch(e){err.textContent='Baixa não concluída: '+e.message+(path?' · Se o arquivo foi enviado, ele poderá ser removido por rotina administrativa.':'');}
+ }catch(e){
+  let cleanup='';
+  if(uploaded&&!recorded){
+   try{const removed=await db.storage.from('pcd-payment-receipts').remove([path]);cleanup=removed.error?' · Comprovante possivelmente armazenado; confira o Storage antes de tentar novamente.':' · Comprovante desta tentativa removido.';}
+   catch(_){cleanup=' · Confira o Storage antes de tentar novamente.';}
+  }
+  err.textContent='Baixa não concluída: '+e.message+cleanup;
+ }
  finally{btn.disabled=false;}
 };
 async function payQueueOpen(){
