@@ -1677,98 +1677,30 @@ $('payment-print').onclick=async()=>{
  const doc=new api.jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
  if(typeof doc.autoTable!=='function'){error.textContent='Módulo de tabelas PDF indisponível.';return;}
  const money=v=>payCurrency(Number(v)||0);
- const navy=[9,39,72],blue=[23,82,124],muted=[103,121,138],ink=[35,54,72],pale=[238,244,248],gold=[234,178,69];
- const selectedItems=selected.map(el=>{
-  const r=paymentCandidates.find(x=>payKey(x)===el.dataset.id);
-  const st=payRowState(r);
-  const input=document.querySelector(`#payment-rows .pay-amount[data-id="${el.dataset.id}"]`);
-  return {r,st,amount:Number(input?.value||0)};
- });
- if(selectedItems.some(x=>!Number.isFinite(x.amount)||x.amount<=0||x.amount>x.st.balance+0.001)){
-  error.textContent='Revise os valores selecionados antes de emitir o extrato.';return;
- }
+ const navy=[5,48,102],light=[212,234,245],gold=[255,198,75],ink=[20,46,74];
+ const selectedItems=selected.map(el=>{const r=paymentCandidates.find(x=>payKey(x)===el.dataset.id);const st=payRowState(r);const input=document.querySelector(`#payment-rows .pay-amount[data-id="${el.dataset.id}"]`);return {r,st,amount:Number(input?.value||0)};});
+ if(selectedItems.some(x=>!Number.isFinite(x.amount)||x.amount<=0||x.amount>x.st.balance+.001)){error.textContent='Revise os valores selecionados antes de emitir o extrato.';return;}
  const sum=fn=>selectedItems.reduce((n,x)=>n+Number(fn(x)||0),0);
- const total=sum(x=>x.st.due),paid=sum(x=>x.st.paid+ x.st.settled);
- const previousBalance=sum(x=>x.st.balance),toPay=sum(x=>x.amount),remaining=previousBalance-toPay;
- const payDate=billingBR($('payment-date').value);
+ const total=sum(x=>x.st.due),paid=sum(x=>x.st.paid+x.st.settled),toPay=sum(x=>x.amount),remaining=sum(x=>x.st.balance)-toPay;
  const isAdvance=paymentMode==='ADVANCE';
- const title=isAdvance?'EXTRATO DE ADIANTAMENTO':'EXTRATO DE QUITAÇÃO';
  const isoDates=rows.map(r=>String(r.date||'').slice(0,10)).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
- const periodBound=(iso,mode,end)=>{
-  const d=new Date(iso+'T12:00:00');
-  if(mode==='ADVANCE')d.setDate(d.getDate()+(end?6:0)-((d.getDay()+6)%7));
-  else d.setDate(end?(d.getDate()<=15?15:new Date(d.getFullYear(),d.getMonth()+1,0).getDate()):(d.getDate()<=15?1:16));
-  return `${String(d.getFullYear())}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
- };
- const periodFrom=isoDates.length?billingBR(periodBound(isoDates[0],paymentMode,false)):'—';
- const periodTo=isoDates.length?billingBR(periodBound(isoDates[isoDates.length-1],paymentMode,true)):'—';
- const plates=[...new Set(rows.map(r=>String(r.plate||'').trim()).filter(Boolean))];
- const plateLabel=plates.length?plates.join(' / '):'Não cadastrada';
- const cpfLabel=rows.find(r=>r.cpf)?.cpf||'Não cadastrado';
- const txt=(t,x,y,size=9,color=ink,bold=false,opts={})=>{
-  doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(size);doc.setTextColor(...color);
-  doc.text(String(t),x,y,opts);
- };
- const fit=(t,max)=>doc.splitTextToSize(String(t),max)[0]||'';
- const pageHeader=()=>{
-  doc.setFillColor(...navy);doc.rect(0,0,297,32,'F');
-  doc.setFillColor(...gold);doc.rect(0,31,297,1.2,'F');
-  txt('INNOVA',13,14,17,[255,255,255],true);
-  txt('| TRANSPORTES E SOLUÇÕES LOGÍSTICAS',49,14,10,[231,238,245]);
-  txt(title,13,24,10,[255,255,255],true);
-  
- };
- const pageFooter=()=>{
-  const count=doc.internal.getNumberOfPages();
-  for(let i=1;i<=count;i++){
-   doc.setPage(i);doc.setDrawColor(218,227,234);doc.line(13,193,284,193);
-   txt('INNOVA | TRANSPORTES E SOLUÇÕES LOGÍSTICAS',13,199,7,muted);
-   
-   txt(`Página ${i} de ${count}`,284,199,7,muted,false,{align:'right'});
-  }
- };
- pageHeader();
- doc.setFillColor(...pale);doc.roundedRect(13,38,271,31,2,2,'F');
- const field=(label,value,x,y,w)=>{txt(label,x,y,7,muted,true);txt(fit(value,w),x,y+6,10,navy,true);};
- field('MOTORISTA',driver,18,45,90);field('PLACA',plateLabel,119,45,70);field('CPF',cpfLabel,208,45,70);
- field('PERÍODO DAS ROTAS',`${periodFrom}  a  ${periodTo}`,18,59,110);
- field('DATA INFORMADA PARA PAGAMENTO',payDate,155,59,65);
- field('ROTAS SELECIONADAS',String(rows.length),246,59,30);
- // Destaque para o valor que está sendo simulado, sem confundi-lo com pagamento confirmado.
- doc.setFillColor(...navy);doc.roundedRect(13,74,271,18,2,2,'F');
- txt('VALOR SELECIONADO PARA PAGAMENTO',19,81,8,[220,232,242],true);
- txt(money(toPay),19,88,15,[255,255,255],true);
- txt('SALDO RESTANTE APÓS ESTE PAGAMENTO',278,81,8,[220,232,242],true,{align:'right'});
- txt(money(remaining),278,88,13,[255,255,255],true,{align:'right'});
- txt('DETALHAMENTO DAS ROTAS',13,101,9,navy,true);
- const body=selectedItems.map(({r,st,amount})=>[
-  billingBR(r.date),String(r.plan||'—'),String(r.city||'—'),money(r.freight),money(r.toll),
-  money(r.comp),money(st.due),money(st.paid+st.settled),money(st.balance),money(amount),money(st.balance-amount)
- ]);
- doc.autoTable({
-  startY:105,margin:{left:13,right:13,bottom:25,top:38},
-  head:[['DATA ROTA','PLANO','CIDADE DETERMINANTE','FRETE','PEDÁGIO','COMPL.','TOTAL','JÁ PAGO','SALDO ANTES','A PAGAR','SALDO APÓS']],
-  body,theme:'grid',showHead:'everyPage',
-  styles:{font:'helvetica',fontSize:7.2,cellPadding:2.2,textColor:ink,overflow:'ellipsize',valign:'middle',lineColor:[226,233,239],lineWidth:.15},
-  headStyles:{fillColor:blue,textColor:[255,255,255],fontStyle:'bold',fontSize:6.7},
-  alternateRowStyles:{fillColor:[247,250,252]},
-  columnStyles:{0:{cellWidth:21},1:{cellWidth:19},2:{cellWidth:33},3:{cellWidth:22},4:{cellWidth:21},5:{cellWidth:20},6:{cellWidth:23},7:{cellWidth:23},8:{cellWidth:29},9:{cellWidth:29},10:{cellWidth:31}},
-  didParseCell:data=>{if(data.section==='body'&&data.column.index===9){data.cell.styles.fontStyle='bold';data.cell.styles.textColor=navy;data.cell.styles.fillColor=[236,244,250];}},
-  didDrawPage:()=>{if(doc.internal.getCurrentPageInfo().pageNumber>1)pageHeader();}
- });
- let y=doc.lastAutoTable.finalY+8;
- if(y+45>190){doc.addPage();pageHeader();y=42;}
- txt('RESUMO FINANCEIRO',13,y,9,navy,true);y+=5;
- const metrics=[['TOTAL DAS ROTAS',total],['PAGAMENTOS ANTERIORES',paid],['SALDO DISPONÍVEL ANTES',previousBalance],['VALOR A PAGAR',toPay],['SALDO APÓS PAGAMENTO',remaining]];
- const colW=52.6,gap=2;
- metrics.forEach(([label,value],i)=>{
-  const x=13+i*(colW+gap);doc.setFillColor(...(i===3?navy:pale));doc.roundedRect(x,y,colW,20,1.6,1.6,'F');
-  txt(fit(label,colW-6),x+3,y+7,6.7,i===3?[226,237,247]:muted,true);
-  txt(money(value),x+3,y+15,10,i===3?[255,255,255]:navy,true);
- });
- y+=25;
- 
- pageFooter();
+ const dateLabel=iso=>billingBR(iso);
+ const periodFrom=isoDates.length?dateLabel(isoDates[0]):'—',periodTo=isoDates.length?dateLabel(isoDates[isoDates.length-1]):'—';
+ const fmtDate=iso=>{const d=new Date(iso+'T12:00:00');return d.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}).toUpperCase();};
+ const subtitle=(isAdvance?'ADIANTAMENTO':'QUITAÇÃO')+' · '+(isoDates.length?fmtDate(isoDates[0]):'PERÍODO SELECIONADO');
+ const txt=(v,x,y,size=8,color=ink,bold=false,align='left')=>{doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(size);doc.setTextColor(...color);doc.text(String(v),x,y,{align});};
+ const header=()=>{doc.setFillColor(...navy);doc.rect(0,0,297,22,'F');txt('RELATÓRIO DE TRANSPORTE',9,10,15,[255,255,255],true);txt(subtitle,9,17,9,gold,true);doc.setFillColor(...light);doc.rect(9,27,279,13,'F');txt('MOTORISTA: '+driver,12,35,9,navy,true);txt('PERÍODO: '+periodFrom+' a '+periodTo,285,35,8,navy,true,'right');};
+ header();
+ const body=selectedItems.map(({r,st,amount})=>[dateLabel(r.date),String(r.plan||'—'),String(r.city||'—'),Number(r.weight||r.peso||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}),money(r.freight),money(r.toll),money(r.comp),money(st.due),money(st.paid+st.settled),money(amount)]);
+ doc.autoTable({startY:44,margin:{left:9,right:9,top:44,bottom:27},head:[['DATA ROTA','PLANO','CIDADE REFERÊNCIA','PESO','FRETE','PEDÁGIO','COMPLEMENTO','TOTAL','ADIANTAMENTO PAGO','SALDO A PAGAR']],body,theme:'plain',showHead:'everyPage',styles:{font:'helvetica',fontSize:7.1,cellPadding:2.1,textColor:ink,overflow:'ellipsize',valign:'middle'},headStyles:{fillColor:light,textColor:navy,fontStyle:'bold',fontSize:6.8},alternateRowStyles:{fillColor:[246,250,253]},columnStyles:{0:{cellWidth:23},1:{cellWidth:25},2:{cellWidth:52},3:{cellWidth:24},4:{cellWidth:24},5:{cellWidth:23},6:{cellWidth:28},7:{cellWidth:24},8:{cellWidth:29},9:{cellWidth:27}},didDrawPage:()=>{if(doc.internal.getCurrentPageInfo().pageNumber>1)header();}});
+ let y=doc.lastAutoTable.finalY+2;
+ if(y+37>183){doc.addPage();header();y=48;}
+ doc.setFillColor(...navy);doc.rect(9,y,279,8,'F');txt('TOTAIS · '+selectedItems.length+' FRETES',12,y+5.6,8,[255,255,255],true);txt(money(total),230,y+5.6,8,[255,255,255],true,'right');txt(money(paid),257,y+5.6,8,[255,255,255],true,'right');txt(money(toPay),285,y+5.6,8,[255,255,255],true,'right');
+ y+=13;const x=170,w=118;
+ for(const [i,label,value] of [['TOTAL DO FECHAMENTO',total],['ADIANTAMENTOS ANTERIORES',paid],['VALOR DESTE FECHAMENTO',toPay],['SALDO REMANESCENTE',remaining]].entries()){
+  const yy=y+i*8;doc.setFillColor(...(i===3?gold:i===0?navy:[235,243,249]));doc.rect(x,yy,w,8,'F');txt(label,x+3,yy+5.6,8,i===0?[255,255,255]:navy,true);txt(money(value),x+w-3,yy+5.6,8,i===0?[255,255,255]:navy,true,'right');
+ }
+ const pages=doc.internal.getNumberOfPages();for(let i=1;i<=pages;i++){doc.setPage(i);txt('INNOVA SOLUÇÕES LOGÍSTICAS · FECHAMENTO DE AGREGADOS',9,202,7,[115,135,155]);txt('Página '+i+' de '+pages,287,202,7,[115,135,155],false,'right');}
  const filename='INNOVA_'+(paymentMode==='ADVANCE'?'ADIANTAMENTO':'QUITACAO')+'_'+driver.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9]+/g,'_')+'_'+$('payment-date').value+'.pdf';
  if(window.__innovaBatchPdfCapture)return {doc,filename};
  doc.save(filename);
@@ -1817,7 +1749,7 @@ const payFmt=n=>payCurrency(Number(n)||0);
 function payKpis(root,labels){root.innerHTML=labels.map(([k,v])=>`<div><small>${esc(k)}</small><strong>${esc(v)}</strong></div>`).join('');}
 async function payLoadReceipts(id){return await rpc('pcd_finance_payment_list',{p_request_id:Number(id)});}
 async function payReceiptOpen(req){
- payCurrentRequest=req;$('pay-receipt-modal').classList.remove('hidden');$('pay-receipt-error').textContent='';$('pay-receipt-date').value=today();$('pay-receipt-file').value='';
+ payCurrentRequest=req;$('pay-receipt-modal').classList.remove('hidden');$('pay-receipt-error').textContent='';$('pay-receipt-date').value=today();$('pay-receipt-file').value='';$('pay-receipt-later').checked=false;
  $('pay-receipt-subtitle').textContent=`Solicitação nº ${req.id} · ${req.driver_name}`;
  await payReceiptRefresh();
 }
@@ -1831,24 +1763,28 @@ async function payReceiptRefresh(){
  const t=document.createElement('table');t.className='payment-table';t.innerHTML='<thead><tr><th>Data</th><th>Valor</th><th>Forma</th><th>Situação</th><th>Comprovante</th></tr></thead>';
  const tb=document.createElement('tbody');
  for(const x of payments){const tr=document.createElement('tr');for(const v of [billingBR(x.paid_on),payFmt(x.amount),x.method,x.voided_at?'Estornado':'Confirmado']){const td=document.createElement('td');td.textContent=v;tr.append(td);}
- const td=document.createElement('td');const b=document.createElement('button');b.className='secondary';b.textContent='Visualizar';b.onclick=async()=>{try{const {data,error}=await db.storage.from('pcd-payment-receipts').createSignedUrl(x.receipt_path,60);if(error)throw error;window.open(data.signedUrl,'_blank','noopener');}catch(e){$('pay-receipt-error').textContent=e.message;}};td.append(b);tr.append(td);tb.append(tr);}
+ const td=document.createElement('td');const b=document.createElement('button');b.className='secondary';
+ if(x.receipt_path){b.textContent='Visualizar';b.onclick=async()=>{try{const {data,error}=await db.storage.from('pcd-payment-receipts').createSignedUrl(x.receipt_path,60);if(error)throw error;window.open(data.signedUrl,'_blank','noopener');}catch(e){$('pay-receipt-error').textContent=e.message;}};}
+ else{b.textContent='Anexar comprovante';b.onclick=async()=>{const fileInput=document.createElement('input');fileInput.type='file';fileInput.accept='.pdf,.jpg,.jpeg,.png';fileInput.onchange=async()=>{const file=fileInput.files?.[0];if(!file)return;try{if(file.size>10*1024*1024||!['application/pdf','image/jpeg','image/png'].includes(file.type))throw Error('Arquivo inválido (máximo 10 MB).');const {data:auth}=await db.auth.getUser();if(!auth?.user?.id)throw Error('Sessão expirada.');const ext=file.type==='application/pdf'?'pdf':file.type==='image/png'?'png':'jpg';const path=`${auth.user.id}/${req.id}/${crypto.randomUUID()}.${ext}`;const upload=await db.storage.from('pcd-payment-receipts').upload(path,file,{contentType:file.type,upsert:false});if(upload.error)throw upload.error;try{await rpc('pcd_finance_payment_attach_receipt',{p_payment_id:Number(x.id),p_receipt_path:path});}catch(e){await db.storage.from('pcd-payment-receipts').remove([path]);throw e;}await payReceiptRefresh();}catch(e){$('pay-receipt-error').textContent='Não foi possível anexar: '+e.message;}};fileInput.click();};}
+ td.append(b);tr.append(td);tb.append(tr);}
  t.append(tb);$('pay-receipt-history').replaceChildren(t);
 }
+$('pay-receipt-later').onchange=()=>{$('pay-receipt-file').disabled=$('pay-receipt-later').checked;$('pay-receipt-file-label').textContent=$('pay-receipt-later').checked?'Comprovante poderá ser anexado posteriormente':'Comprovante (PDF, JPG, PNG; até 10 MB)';};
 $('pay-receipt-close').onclick=()=>$('pay-receipt-modal').classList.add('hidden');
 $('pay-receipt-save').onclick=async()=>{
  const req=payCurrentRequest,btn=$('pay-receipt-save'),err=$('pay-receipt-error');err.textContent='';
- const amount=Number($('pay-receipt-amount').value),date=$('pay-receipt-date').value,file=$('pay-receipt-file').files[0];
+ const amount=Number($('pay-receipt-amount').value),date=$('pay-receipt-date').value,file=$('pay-receipt-file').files[0],later=$('pay-receipt-later').checked;
  if(!date||!Number.isFinite(amount)||amount<=0){err.textContent='Informe data e valor válido.';return;}
- if(!file||file.size>10*1024*1024||!['application/pdf','image/jpeg','image/png'].includes(file.type)){err.textContent='Anexe um PDF, JPG ou PNG de até 10 MB.';return;}
+ if(!later&&(!file||file.size>10*1024*1024||!['application/pdf','image/jpeg','image/png'].includes(file.type))){err.textContent='Anexe um PDF, JPG ou PNG de até 10 MB, ou marque Adicionar comprovante depois.';return;}
  if(!confirm(`Confirmar baixa de ${payFmt(amount)} na solicitação nº ${req.id}?`))return;
  btn.disabled=true;let path='';let uploaded=false;let recorded=false;
  try{
   const {data:auth}=await db.auth.getUser();if(!auth?.user?.id)throw Error('Sessão expirada.');
-  const ext=file.type==='application/pdf'?'pdf':file.type==='image/png'?'png':'jpg';
+  if(!later){const ext=file.type==='application/pdf'?'pdf':file.type==='image/png'?'png':'jpg';
   path=`${auth.user.id}/${req.id}/${crypto.randomUUID()}.${ext}`;
-  const upload=await db.storage.from('pcd-payment-receipts').upload(path,file,{contentType:file.type,upsert:false});if(upload.error)throw upload.error;uploaded=true;
+  const upload=await db.storage.from('pcd-payment-receipts').upload(path,file,{contentType:file.type,upsert:false});if(upload.error)throw upload.error;uploaded=true;}
   await rpc('pcd_finance_payment_record',{p_request_id:Number(req.id),p_amount:amount,p_paid_on:date,p_method:$('pay-receipt-method').value,p_reference:$('pay-receipt-reference').value||null,p_receipt_path:path});recorded=true;
-  message('Pagamento registrado com comprovante.');await payReceiptRefresh();await payQueueOpen();
+  message(later?'Pagamento registrado; comprovante pendente.':'Pagamento registrado com comprovante.');await payReceiptRefresh();await payQueueOpen();
  }catch(e){
   let cleanup='';
   if(uploaded&&!recorded){

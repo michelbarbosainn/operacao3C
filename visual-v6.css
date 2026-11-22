@@ -716,3 +716,5 @@ body:has(#panel-protocols:not(.hidden)) #innova-top-kpis{display:none!important}
 
 /* Fechamento semanal */
 .pay-batch-dialog{width:min(1100px,97vw);max-height:94vh;overflow:auto}.pay-batch-kpis{margin:12px 0;padding:13px;background:#edf5fc;border-radius:10px;font-weight:600;color:#123b5e}.pay-batch-drivers{max-height:49vh;overflow:auto;margin:12px 0}.pay-batch-driver{border:1px solid #dce6ef;border-radius:10px;margin-bottom:8px;padding:9px 12px;background:white}.pay-batch-driver summary{cursor:pointer;font-weight:600;color:#173d60;padding:7px}.pay-batch-driver .payment-table{margin-top:9px}.pay-batch-footer{justify-content:flex-end;gap:10px}@media(max-width:700px){.pay-batch-dialog{width:98vw}.pay-batch-drivers{max-height:40vh}}
+
+.pay-later-option{margin:10px 0;padding:10px 12px;border:1px solid #d6e4f0;border-radius:9px;background:#f6f9fc}.pay-later-option label{display:flex;gap:9px;align-items:center;font-weight:600}.pay-later-option input{width:16px;height:16px}.pay-later-option small{display:block;color:#61788d;margin:5px 0 0 25px}
